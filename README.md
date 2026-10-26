@@ -27,7 +27,7 @@ Tonetrace 4.0.0: ein Sample aufnehmen, als Spektrogramm sehen, die Noten selbst 
 
 ## Installation
 
-Aus der ZIP (`Tonetrace-4.0.0-macOS.zip`):
+Aus der ZIP [`releases/Tonetrace-4.0.0-macOS.zip`](releases/Tonetrace-4.0.0-macOS.zip) (SHA-256 in [`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)):
 
 ```bash
 unzip Tonetrace-4.0.0-macOS.zip && cd Tonetrace-4.0.0
