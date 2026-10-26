@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Tonetrace app icon</title>
+  <defs>
+    <linearGradient id="tile" x1="164" y1="132" x2="860" y2="892" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B1F26"/>
+      <stop offset="1" stop-color="#121418"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#2A3038" stroke-width="2"/>
+  <g transform="translate(141 141) scale(1.45)">
+    <g fill="#2EE6C5">
+      <rect x="64" y="216" width="40" height="80" rx="20"/>
+      <rect x="120" y="164" width="40" height="184" rx="20"/>
+      <rect x="176" y="112" width="40" height="288" rx="20"/>
+      <rect x="204" y="136" width="244" height="32" rx="16"/>
+      <rect x="204" y="240" width="140" height="32" rx="16"/>
+      <rect x="204" y="344" width="244" height="32" rx="16"/>
+    </g>
+    <rect x="368" y="240" width="80" height="32" rx="16" fill="#FF9F43"/>
+  </g>
+</svg>

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 40 1590 180" role="img" aria-labelledby="title">
+  <title id="title">Tonetrace wordmark</title>
+  <g transform="translate(0 14) scale(.45)">
+    <g fill="#2EE6C5">
+      <rect x="64" y="216" width="40" height="80" rx="20"/>
+      <rect x="120" y="164" width="40" height="184" rx="20"/>
+      <rect x="176" y="112" width="40" height="288" rx="20"/>
+      <rect x="204" y="136" width="244" height="32" rx="16"/>
+      <rect x="204" y="240" width="140" height="32" rx="16"/>
+      <rect x="204" y="344" width="244" height="32" rx="16"/>
+    </g>
+    <rect x="368" y="240" width="80" height="32" rx="16" fill="#FF9F43"/>
+  </g>
+  <g fill="#E6E9EF">
+    <path d="M260 60h110v24h-43v116h-24V84h-43Z"/>
+    <path fill-rule="evenodd" d="M415 60h110v140H415Zm24 24v92h62V84Z"/>
+    <path d="M570 200V60h24l62 96V60h24v140h-24l-62-96v96Z"/>
+    <path d="M725 60h100v24h-76v34h66v24h-66v34h76v24H725Z"/>
+    <path d="M870 60h110v24h-43v116h-24V84h-43Z"/>
+    <path fill-rule="evenodd" d="M1025 200V60h67c29 0 43 15 43 43v16c0 20-8 33-25 39l31 42h-30l-28-39h-34v39Zm24-116v53h40c15 0 22-7 22-21v-11c0-14-7-21-22-21Z"/>
+    <path fill-rule="evenodd" d="M1180 200l50-140h20l50 140h-26l-11-32h-46l-11 32Zm45-56h30l-15-45Z"/>
+    <path d="M1445 60v24h-60c-17 0-26 9-26 26v40c0 17 9 26 26 26h60v24h-65c-30 0-45-15-45-45v-50c0-30 15-45 45-45Z"/>
+    <path d="M1490 60h100v24h-76v34h66v24h-66v34h76v24h-100Z"/>
+  </g>
+</svg>

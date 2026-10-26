@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Tonetrace mark</title>
+  <g fill="#2EE6C5">
+    <rect x="64" y="216" width="40" height="80" rx="20"/>
+    <rect x="120" y="164" width="40" height="184" rx="20"/>
+    <rect x="176" y="112" width="40" height="288" rx="20"/>
+    <rect x="204" y="136" width="244" height="32" rx="16"/>
+    <rect x="204" y="240" width="140" height="32" rx="16"/>
+    <rect x="204" y="344" width="244" height="32" rx="16"/>
+  </g>
+  <rect x="368" y="240" width="80" height="32" rx="16" fill="#FF9F43"/>
+</svg>

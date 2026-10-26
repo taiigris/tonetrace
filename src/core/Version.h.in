@@ -1,0 +1,5 @@
+// Generated from VERSION and git by CMake. Single source for the bundle, the VST3 class info, the UI and the log.
+#pragma once
+
+#define TTR_VERSION_STRING "@PROJECT_VERSION@"
+#define TTR_BUILD_HASH "@TONETRACE_BUILD_HASH@"
