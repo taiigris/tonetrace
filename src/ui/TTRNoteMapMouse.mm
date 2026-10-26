@@ -1,11 +1,13 @@
 // Note map: drawing, selecting, moving, resizing and deleting notes with the mouse.
+#include <algorithm>
+
 #import "core/NoteEdit.h"
 #import "ui/TTRNoteMapInternal.h"
 #import "ui/TTRTheme.h"
 
 const CGFloat kTTREdgeGrabPixels = 6.0;
 static const CGFloat kDragStartPixels = 3.0, kHitPadding = 1.0;
-static const double kAuditionProbeSec = 0.1;
+static const double kAuditionProbeSec = 0.1, kGrabSelectSeconds = 0.9;
 
 typedef struct { int index; TTRGesture gesture; } TTRNoteHit;
 
@@ -27,6 +29,8 @@ typedef struct { int index; TTRGesture gesture; } TTRNoteHit;
     }
     return {-1, TTRGestureNone};
 }
+
+- (int)hitNoteIndexAt:(NSPoint)p { return [self hitNoteAt:p].index; }
 
 - (const ttr::NoteEvent&)noteAt:(int)index { return [self notes][size_t(index)]; }
 
@@ -97,7 +101,8 @@ typedef struct { int index; TTRGesture gesture; } TTRNoteHit;
 
     const TTRNoteHit hit = [self hitNoteAt:p];
     if (hit.index >= 0) {
-        if (event.clickCount >= 2) { _kernel->editNotes(ttr::withDeleted([self notes], {hit.index})); return; }
+        const BOOL justGrabbed = CACurrentMediaTime() - _lastGrabTime < kGrabSelectSeconds;  // the second click of a grab selects, it does not delete
+        if (event.clickCount >= 2 && !justGrabbed) { _kernel->editNotes(ttr::withDeleted([self notes], {hit.index})); return; }
         if (shift) { _kernel->setNotes(ttr::withSelection([self notes], {hit.index}, ttr::SelectMode::Toggle)); return; }
         if (![self noteAt:hit.index].selected) _kernel->setNotes(ttr::withSelection([self notes], {hit.index}, ttr::SelectMode::Replace));
         [self beginGesture:hit.gesture at:p];
@@ -111,15 +116,16 @@ typedef struct { int index; TTRGesture gesture; } TTRNoteHit;
     _origNotes = [self notes];
     const double t = _downSec;
     int pitch = _downPitch;
-    if (_kernel->param(ttr::kParamMagnet) >= 0.5f) pitch = ttr::magnetPitch([self magnetEnergies], _mv.frames, _mv.hopSec, t, t + kAuditionProbeSec, pitch);
+    const ttr::LineHit lineHit = [self lineAtPoint:p];
+    if (lineHit.track >= 0) pitch = std::clamp(ttr::rowOfMidi(lineHit.midi, [self tuningCents]), ttr::kMinNote, ttr::kMaxNote);  // click-to-grab: the line's own row
+    else if (_kernel->param(ttr::kParamMagnet) >= 0.5f) pitch = [self magnetPitch:pitch from:t to:t + kAuditionProbeSec];
     _kernel->audition(pitch);  // hear the row you are about to draw on
 }
 
 - (void)dragDraw:(NSPoint)p snap:(BOOL)snap {
     const double t1 = _vp->timeForX(p.x);
     int pitch = _downPitch;
-    if (_kernel->param(ttr::kParamMagnet) >= 0.5f)
-        pitch = ttr::magnetPitch([self magnetEnergies], _mv.frames, _mv.hopSec, MIN(_downSec, t1), MAX(_downSec, t1), pitch);
+    if (_kernel->param(ttr::kParamMagnet) >= 0.5f) pitch = [self magnetPitch:pitch from:MIN(_downSec, t1) to:MAX(_downSec, t1)];
     [self commitLive:ttr::withNoteAdded(_origNotes, ttr::makeNote(pitch, _downSec, t1, _grid, snap))];
 }
 
@@ -167,7 +173,19 @@ typedef struct { int index; TTRGesture gesture; } TTRNoteHit;
     [self notifyViewport];
 }
 
+// A click without dragging on a line creates a note over the whole line segment (start and end of the segment, row of the line).
+- (void)grabLineAt:(NSPoint)p {
+    const ttr::LineHit hit = [self lineAtPoint:p];
+    if (hit.track < 0) return;
+    const ttr::NoteEvent note = [self lines]->noteForTrack(hit.track, [self tuningCents]);
+    _kernel->editNotes(ttr::withNoteAdded([self notes], note));
+    [self flashTrack:hit.track];
+    _lastGrabTime = CACurrentMediaTime();
+    [self sendMessage:[NSString stringWithFormat:@"Grabbed %@ (%.2f - %.2f s)", TTRNoteName(note.pitch), note.startSec, note.endSec]];
+}
+
 - (void)mouseUp:(NSEvent*)event {
+    if (_gesture == TTRGestureDraw && !_gestureStarted) [self grabLineAt:_downPoint];
     _gesture = TTRGestureNone;
     _gestureStarted = NO;
     [self updateCursorFor:[self pointOfEvent:event]];

@@ -1,26 +1,29 @@
 // Pure editing functions of the note model: grid, snap, magnet and the edits (draw, move, resize, delete,
 // duplicate, select). Every function returns a new, sorted note list with same-pitch overlaps merged.
 #pragma once
+#include <memory>
 #include <vector>
 
 #include "core/Types.h"
 
 namespace ttr {
 
-constexpr int kNumSnapModes = 5;
+constexpr int kNumSnapModes = 6;
+constexpr int kSnapOnset = 5;  // edges snap to detected onsets and line ends (default); 0 = off, 1..4 = grid
 constexpr double kMinFreeNoteSec = 0.03;  // shortest note without snap
-const char* snapName(int mode);           // Off, 1/4, 1/8, 1/16, 1/32
-double snapGridBeats(int mode);           // 0 = off
+const char* snapName(int mode);           // Off, 1/4, 1/8, 1/16, 1/32, Onset
+double snapGridBeats(int mode);           // 0 = off (also for Onset: no grid)
 
 struct TimeGrid {
     double bpm = kDefaultBpm;
     double startPpq = 0.0;  // project beat at time 0 of the recording
     int snapMode = 3;       // index into snapName
+    std::shared_ptr<const PitchLines> lines;  // snap targets of the Onset mode (the recording's lines; may be null)
     double beatsPerSec() const { return (bpm > 0 ? bpm : kDefaultBpm) / 60.0; }
 };
 
 double gridStepSec(const TimeGrid& grid);            // 0 when snap is off
-double snapTime(double sec, const TimeGrid& grid);   // nearest grid line; unchanged when snap is off
+double snapTime(double sec, const TimeGrid& grid);   // nearest grid line (Onset: nearest onset / line edge); unchanged when snap is off
 double minNoteSec(const TimeGrid& grid);
 
 // Magnet: the pitch (within +-1 semitone of `pitch`) with the most energy between t0 and t1.

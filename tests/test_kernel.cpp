@@ -63,6 +63,7 @@ TEST(kernel_draw_edit_undo_redo) {
     TonetraceKernel k;
     k.prepare(kRate, kBlock);
     CHECK(!k.canUndo() && !k.undo());
+    k.setParam(kParamSnap, 3.0f);  // 1/16 grid (the default snap mode is Onset)
     const TimeGrid grid = k.timeGrid();
     k.editNotes(withNoteAdded({}, makeNote(69, 1.01, 1.49, grid, true)));
     CHECK(k.snapshot() && k.snapshot()->notes.size() == 1);  // notes can be drawn before any recording
@@ -250,7 +251,7 @@ TEST(kernel_reset_and_bypass_and_param_clamping) {
     CHECK(k.status() == KernelStatus::Idle && k.recordedSeconds() == 0.0);
 
     k.setParam(kParamSnap, 7.0f);
-    CHECK(k.param(kParamSnap) == 4.0f);
+    CHECK(k.param(kParamSnap) == 5.0f);
     k.setParam(kParamSpeed, 100.0f);
     CHECK(k.param(kParamSpeed) == kSpeedMax);
     k.setParam(kParamGain, NAN);

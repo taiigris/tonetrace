@@ -19,6 +19,8 @@
     TTRScrollBar_v1* _scroll;
     TTRKnob_v1 *_gainKnob, *_rangeKnob, *_quickGrabKnob, *_soundKnob, *_mixKnob;
     TTRButton_v1 *_speedMinus, *_speedPlus, *_hideDrumsButton, *_magnetButton, *_grabButton, *_resetButton, *_clearButton, *_previewButton, *_soloButton, *_saveButton;
+    TTRButton_v1 *_fundamentalsButton, *_alignButton, *_tuningMinus, *_tuningPlus;
+    TTRReadout_v1* _tuningReadout;
     TTRButton_v1 *_undoButton, *_redoButton, *_deleteButton, *_duplicateButton, *_infoButton, *_syncButton;
     TTRBannerView_v1* _banner;
     TTRDiagnosticsView_v1* _diag;
@@ -89,6 +91,9 @@ extern const double kTTRActiveHz, kTTRIdleHz;
 - (void)deleteClicked;
 - (void)duplicateClicked;
 - (void)syncClicked;
+- (void)lineViewChanged:(ttr::LineView)view;  // kernel + editor state
+- (void)nudgeTuning:(int)direction;
+- (NSString*)tuningText;
 - (void)drawStatusBar:(NSRect)status;
 - (void)layoutStatusButtons;
 @end

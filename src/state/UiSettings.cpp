@@ -11,7 +11,9 @@ namespace ttr {
 namespace {
 
 constexpr uint32_t kMagic = 0x31555454;  // "TTU1"
-constexpr uint32_t kVersion = 1;
+constexpr uint32_t kVersion = 2;  // 2 adds fundamentals / align / tuning trim (version 1 still loads)
+constexpr uint32_t kFirstVersion = 1;
+constexpr float kMaxTuningTrim = 50.0f;
 constexpr size_t kHeaderBytes = 16;
 constexpr double kMaxScrollSec = 24.0 * 3600.0, kMaxScrollY = 1.0e6;
 
@@ -70,6 +72,7 @@ UiSettings sanitized(UiSettings s) {
     s.speed = clampParam(s.speed, kParamSpeed);
     s.quickGrab = clampParam(s.quickGrab, kParamQuickGrab);
     s.snap = std::clamp(s.snap, 0, int(paramSpec(kParamSnap).maxValue));
+    s.tuningTrim = std::isfinite(s.tuningTrim) ? std::clamp(s.tuningTrim, -kMaxTuningTrim, kMaxTuningTrim) : 0.0f;
     s.scrollSec = std::isfinite(s.scrollSec) ? std::clamp(s.scrollSec, 0.0, kMaxScrollSec) : 0.0;
     s.scrollY = std::isfinite(s.scrollY) ? std::clamp(s.scrollY, -1.0, kMaxScrollY) : -1.0;
     s.width = std::clamp(s.width, kMinWindowWidth, kMaxWindowSize);
@@ -91,6 +94,9 @@ std::vector<uint8_t> encodeUiSettings(const UiSettings& s) {
     put<double>(body, s.scrollY);
     put<int32_t>(body, s.width);
     put<int32_t>(body, s.height);
+    put<uint8_t>(body, s.fundamentals ? 1 : 0);
+    put<uint8_t>(body, s.alignToSample ? 1 : 0);
+    put<float>(body, s.tuningTrim);
     std::vector<uint8_t> out;
     put<uint32_t>(out, kMagic);
     put<uint32_t>(out, kVersion);
@@ -105,7 +111,8 @@ bool decodeUiSettings(const uint8_t* data, size_t size, UiSettings* out, std::st
     if (!data || size < kHeaderBytes) return fail("the editor state is truncated");
     Reader head(data, size);
     if (head.get<uint32_t>() != kMagic) return fail("not a Tonetrace editor state");
-    if (head.get<uint32_t>() != kVersion) return fail("unknown editor state version");
+    const uint32_t version = head.get<uint32_t>();
+    if (version < kFirstVersion || version > kVersion) return fail("unknown editor state version");
     const uint32_t length = head.get<uint32_t>(), crc = head.get<uint32_t>();
     if (length != size - kHeaderBytes) return fail("the editor state is truncated");
     if (crc32(data + kHeaderBytes, length) != crc) return fail("editor state checksum mismatch");
@@ -123,6 +130,11 @@ bool decodeUiSettings(const uint8_t* data, size_t size, UiSettings* out, std::st
     s.scrollY = r.get<double>();
     s.width = r.get<int32_t>();
     s.height = r.get<int32_t>();
+    if (version >= 2) {
+        s.fundamentals = r.get<uint8_t>() != 0;
+        s.alignToSample = r.get<uint8_t>() != 0;
+        s.tuningTrim = r.get<float>();
+    }
     if (!r.ok()) return fail("the editor state is truncated");
     *out = sanitized(s);
     return true;

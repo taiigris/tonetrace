@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "analysis/PitchLines.h"
 #include "analysis/QuickGrab.h"
 #include "core/Logger.h"
 #include "core/TonetraceKernel.h"
@@ -35,6 +36,11 @@ MapView TonetraceKernel::mapView() const {
         v.peak = live_.peak();
         v.wave = livePeaks_.data();
         v.waveCount = livePeaks_.count();
+        v.linePoints = liveLines_.points();
+        v.lineCounts = liveLines_.counts();
+        v.lineFrames = liveLines_.frames();
+        v.linePeak = liveLines_.peak();
+        v.lineHold = liveLines_.hold();
         v.lengthSec = recordedSeconds();
         return v;
     }
@@ -51,6 +57,14 @@ MapView TonetraceKernel::mapView() const {
         v.wave = v.snapshot->peaks->minMax.data();
         v.waveCount = v.snapshot->peaks->count();
     }
+    if (const PitchLines* lines = v.snapshot->lines.get()) {
+        v.lines = lines;
+        v.linePoints = lines->points.data();
+        v.lineCounts = lines->counts.data();
+        v.lineFrames = lines->frames;
+        v.linePeak = lines->peak;
+        v.lineHold = v.snapshot->lines;
+    }
     v.lengthSec = v.snapshot->lengthSec;
     return v;
 }
@@ -61,6 +75,7 @@ TimeGrid TonetraceKernel::timeGrid() const {
     const SnapshotPtr snap = snapshot();
     grid.bpm = snap && snap->hasRecording() ? snap->bpm : hostBpm();
     grid.startPpq = snap && snap->hasRecording() ? snap->startPpq : 0.0;
+    if (snap) grid.lines = snap->lines;
     return grid;
 }
 
@@ -155,7 +170,7 @@ int TonetraceKernel::quickGrab() {
     if (status() != KernelStatus::Idle) return 0;
     const SnapshotPtr base = snapshot();
     if (!base || !base->spectrogram) return 0;
-    return mergeGrabbed(base, quickGrabNotes(*base->spectrogram, param(kParamQuickGrab), filterSettings()));
+    return mergeGrabbed(base, quickGrabSnapshot(*base, param(kParamQuickGrab), filterSettings(), tuningOffsetCents()));
 }
 
 // Adds Quick Grab notes as one undo step; the document may have changed while the grab was computed.
@@ -171,6 +186,28 @@ int TonetraceKernel::mergeGrabbed(const SnapshotPtr& base, std::vector<NoteEvent
     history_.record(cur->notes);
     publishLocked(withNotes(*cur, std::move(merged)));
     return added;
+}
+
+LineView TonetraceKernel::lineView() const {
+    return {lineFundamentals_.load(), lineAlign_.load(), lineTrim_.load()};
+}
+
+void TonetraceKernel::setLineView(const LineView& view) {
+    lineFundamentals_.store(view.fundamentals);
+    lineAlign_.store(view.alignToSample);
+    lineTrim_.store(std::isfinite(view.trimCents) ? std::clamp(view.trimCents, -kMaxTrimCents, kMaxTrimCents) : 0.0f);
+}
+
+double TonetraceKernel::detectedTuningCents(bool* isReliable) const {
+    const SnapshotPtr snap = snapshot();
+    const bool ok = snap && snap->lines && snap->lines->hasTuning();
+    if (isReliable) *isReliable = ok;
+    return ok ? double(snap->lines->tuningCents) : 0.0;
+}
+
+double TonetraceKernel::tuningOffsetCents() const {
+    const LineView v = lineView();
+    return (v.alignToSample ? detectedTuningCents() : 0.0) + double(v.trimCents);
 }
 
 void TonetraceKernel::resetAll() {
@@ -224,6 +261,7 @@ bool TonetraceKernel::loadState(const uint8_t* data, size_t size) {
         publishLocked(state.snapshot);
     }
     restoreCaptureFromSnapshot();
+    startLinesJob();
     logInfo(instanceId_, "state loaded: %zu bytes, format v%u, %zu notes, %s", size, state.formatVersion,
             state.snapshot ? state.snapshot->notes.size() : size_t(0), state.snapshot && state.snapshot->hasRecording() ? "with recording" : "no recording");
     return true;

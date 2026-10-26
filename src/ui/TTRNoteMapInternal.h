@@ -25,6 +25,8 @@ extern const CGFloat kTTREdgeGrabPixels;  // width of the resize zones at both e
     ttr::TimeGrid _grid;
     TTRHeatTileCache _tiles;
     NSString* _drawKey;
+    int _flashTrack;               // line that lights up after click-to-grab (-1: none)
+    CFTimeInterval _flashStart, _lastGrabTime;
     // gesture state
     TTRGesture _gesture;
     NSPoint _downPoint, _lassoEnd;
@@ -39,10 +41,31 @@ extern const CGFloat kTTREdgeGrabPixels;  // width of the resize zones at both e
 - (NSRect)lassoRect;
 - (int)pitchAtY:(CGFloat)y;
 - (const float*)magnetEnergies;
+- (int)magnetPitch:(int)pitch from:(double)t0 to:(double)t1;
+- (const ttr::PitchLines*)lines;   // finished pitch lines of the recording; null while recording or without lines
+- (double)tuningCents;              // grid offset (detected tuning when aligned, plus the manual trim)
+- (CGFloat)yForMidi:(double)midi;   // view y of a line pitch (tuning applied)
+- (ttr::LineHit)lineAtPoint:(NSPoint)p;
+- (void)flashTrack:(int)track;
 - (void)notifyViewport;
 - (void)sendMessage:(NSString*)message;
 @end
 
+@interface TTRNoteMapView_v1 (Mouse)
+- (int)hitNoteIndexAt:(NSPoint)p;  // top-most drawn note under the point, -1 for none
+@end
+
 @interface TTRNoteMapView_v1 (Drawing)
 - (void)drawContent;
+@end
+
+// Hover row, line outline, ghost note and the label at the pointer.
+@interface TTRNoteMapView_v1 (Hover)
+- (void)drawHover:(CGContextRef)ctx;
+- (void)strokeTrack:(int)track context:(CGContextRef)ctx width:(CGFloat)width color:(NSColor*)color;
+- (BOOL)hasHoverPoint;
+- (NSPoint)cursorPoint;
+- (ttr::LineHit)hoveredLine;
+- (BOOL)ghostNote:(ttr::NoteEvent*)out;
+- (void)drawGhostAndLabel:(CGContextRef)ctx;
 @end

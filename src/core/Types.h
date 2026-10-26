@@ -7,6 +7,8 @@
 
 namespace ttr {
 
+struct PitchLines;  // analysis/PitchLines.h
+
 constexpr int kMinNote = 24;   // C1: lowest row of the note map
 constexpr int kMaxNote = 108;  // C8: highest row
 constexpr int kNumNotes = kMaxNote - kMinNote + 1;
@@ -77,6 +79,7 @@ struct Snapshot {
     std::shared_ptr<const Spectrogram> spectrogram;  // null before the first recording
     std::shared_ptr<const WavePeaks> peaks;
     std::shared_ptr<const AudioClip> audio;  // null when too long to be stored (preview then plays notes only)
+    std::shared_ptr<const PitchLines> lines;  // the thin lines of the note map; null until computed (restored states compute them in the background)
     std::array<float, 12> chroma{};          // pitch-class energy of the recording (key estimate without notes)
     KeyResult key;
     double lengthSec = 0.0;

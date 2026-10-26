@@ -9,7 +9,7 @@
 namespace {
 constexpr int kTilePixels = 128;       // device pixels per tile (width)
 constexpr long kKeepTilesAround = 3;   // tiles kept left and right of the visible ones
-constexpr float kLiveReferenceStepDb = 1.5f;
+constexpr float kLiveReferenceStepDb = 3.0f;  // coarse: every step re-renders all visible tiles of a growing map
 
 // Highest value the live reference may take: rounded up to a step so a slowly rising peak keeps the tiles valid.
 float quantizedReference(float peak) {
@@ -26,12 +26,15 @@ void TTRHeatTileCache::clear() {
     owner_.reset();
 }
 
-CGImageRef TTRHeatTileCache::render(const TTRHeatParams& p, long index, double spanSec, double tileWidth, double contentHeight) const {
+CGImageRef TTRHeatTileCache::render(const TTRHeatParams& p, long index, double spanSec, double tileWidth, double contentHeight, Tile* out) const {
     TTRHeatParams tile = p;
     tile.scrollSec = double(index) * spanSec;
     tile.scrollY = 0.0;
     tile.width = tileWidth;
     tile.height = contentHeight;
+    out->bandTop = 0.0;
+    out->bandHeight = contentHeight;
+    if (p.linePoints) return TTRRenderLines(tile, &out->bandTop, &out->bandHeight);
     return TTRRenderHeatmap(tile);
 }
 
@@ -40,8 +43,8 @@ void TTRHeatTileCache::draw(CGContextRef ctx, const TTRHeatParams& params, std::
     TTRHeatParams p = params;
     if (isLive) p.reference = quantizedReference(p.reference);
     Key key;
-    key.data = p.data; key.generation = generation; key.hopSec = p.hopSec; key.pxPerSec = p.pxPerSec; key.rowH = p.rowH;
-    key.scale = p.scale; key.gain = p.gain; key.range = p.range; key.reference = p.reference;
+    key.data = p.linePoints ? (const void*)p.linePoints : (const void*)p.data; key.generation = generation; key.hopSec = p.hopSec; key.pxPerSec = p.pxPerSec; key.rowH = p.rowH;
+    key.scale = p.scale; key.gain = p.gain; key.range = p.range; key.reference = p.reference; key.tuning = p.tuningCents; key.fundamentals = p.fundamentals; key.hideDrums = p.hideDrums;
     if (!(key == key_)) {
         clear();
         key_ = key;
@@ -58,11 +61,11 @@ void TTRHeatTileCache::draw(CGContextRef ctx, const TTRHeatParams& params, std::
         const double startSec = double(index) * spanSec;
         const int endFrame = int(std::ceil((startSec + spanSec) / p.hopSec)) + 1;  // last frame this tile can read
         const int startFrame = int(std::floor(startSec / p.hopSec + 0.5));
-        const int framesUsed = p.data && startFrame < p.frames ? std::min(p.frames, endFrame) : 0;  // tiles beyond the data stay valid as they are
+        const int framesUsed = (p.data || p.linePoints) && startFrame < p.frames ? std::min(p.frames, endFrame) : 0;  // tiles beyond the data stay valid as they are
         Tile& tile = tiles_[index];
-        if (!tile.image || tile.framesUsed != framesUsed) {
+        if (tile.framesUsed != framesUsed) {  // (a tile without lines has no image but is still up to date)
             if (tile.image) CGImageRelease(tile.image);
-            tile.image = render(p, index, spanSec, tileWidth, contentHeight);
+            tile.image = render(p, index, spanSec, tileWidth, contentHeight, &tile);
             tile.framesUsed = framesUsed;
             ++rendered_;
         }
@@ -70,9 +73,9 @@ void TTRHeatTileCache::draw(CGContextRef ctx, const TTRHeatParams& params, std::
         const double x = std::round((startSec - p.scrollSec) * p.pxPerSec * p.scale) / p.scale;
         CGContextSaveGState(ctx);
         CGContextSetInterpolationQuality(ctx, kCGInterpolationNone);
-        CGContextTranslateCTM(ctx, x, originY + contentHeight);  // the view is flipped, images are not
+        CGContextTranslateCTM(ctx, x, originY + tile.bandTop + tile.bandHeight);  // the view is flipped, images are not
         CGContextScaleCTM(ctx, 1, -1);
-        CGContextDrawImage(ctx, CGRectMake(0, 0, tileWidth, contentHeight), tile.image);
+        CGContextDrawImage(ctx, CGRectMake(0, 0, tileWidth, tile.bandHeight), tile.image);
         CGContextRestoreGState(ctx);
     }
     for (auto it = tiles_.begin(); it != tiles_.end();) {  // drop what scrolled far away

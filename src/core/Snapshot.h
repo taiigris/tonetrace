@@ -10,6 +10,7 @@ struct Recording {
     std::shared_ptr<const Spectrogram> spectrogram;
     std::shared_ptr<const WavePeaks> peaks;
     std::shared_ptr<const AudioClip> audio;
+    std::shared_ptr<const PitchLines> lines;
     std::array<float, 12> chroma{};  // see spectrogramChroma; stored so the key needs no re-analysis
     double lengthSec = 0.0;
     double bpm = kDefaultBpm;
@@ -26,6 +27,8 @@ KeyResult keyOf(const std::vector<NoteEvent>& notes, const std::array<float, 12>
 SnapshotPtr makeSnapshot(std::vector<NoteEvent> notes, const Recording& recording, uint64_t version);
 // Same recording, other notes.
 SnapshotPtr withNotes(const Snapshot& old, std::vector<NoteEvent> notes);
+// Same document with computed pitch lines (restored state).
+SnapshotPtr withLines(const Snapshot& old, std::shared_ptr<const PitchLines> lines);
 // Same notes, other recording (new recording or restored state).
 SnapshotPtr withRecording(const Snapshot* old, const Recording& recording);
 

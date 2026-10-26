@@ -129,7 +129,7 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     _scroll = [[TTRScrollBar_v1 alloc] initWithFrame:NSZeroRect];
     void (^zoom)(double) = ^(double speed) { [weak editParam:ttr::kParamSpeed value:float(speed)]; };
     _wave.toolTip = @"Waveform: click sets the preview start, drag selects a loop region, wheel scrolls and zooms";
-    _map.toolTip = @"Note map: click-drag on empty space draws a note, drag a note to move it, drag its ends to resize, right-click for the menu";
+    _map.toolTip = @"Note map: click a line to grab it as a note, drag on empty space to draw one, drag a note to move it, drag its ends to resize, right-click for the menu";
     _piano.toolTip = @"Piano: click a key to hear the pitch";
     _scroll.toolTip = @"Scroll the timeline";
     _wave.onZoom = zoom;
@@ -158,13 +158,23 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     _speedReadout.toolTip = @"Time zoom (Cmd+wheel or pinch)";
     [self addSubview:_speedReadout];
     _hideDrumsButton = [self addToggle:@"Hide drums" param:ttr::kParamHideDrums tip:@"Show only the harmonic part of the sound: drum hits fade out of the map (and out of Quick Grab)"];
-    _magnetButton = [self addToggle:@"Magnet" param:ttr::kParamMagnet tip:@"New notes snap to the brightest line within one semitone"];
+    _magnetButton = [self addToggle:@"Magnet" param:ttr::kParamMagnet tip:@"New notes snap to the strongest line within one semitone of the pointer"];
+    _fundamentalsButton = [self addButton:@"Fundamentals" kind:TTRButtonKindNormal tip:@"Fundamentals: overtones (2x to 6x and beyond of a stronger, lower line) are drawn dark, so every note shows only its fundamental line; Quick Grab prefers fundamentals"
+                                      action:^{ ttr::LineView v = kernel->lineView(); v.fundamentals = !v.fundamentals; [weak lineViewChanged:v]; }];
+    _alignButton = [self addButton:@"Align" kind:TTRButtonKindNormal tip:@"Align to sample: shifts the semitone rows by the sample's detected tuning, so the lines sit in the middle of their rows (notes get the right MIDI pitch)"
+                               action:^{ ttr::LineView v = kernel->lineView(); v.alignToSample = !v.alignToSample; [weak lineViewChanged:v]; }];
+    _tuningMinus = [self addButton:@"−" kind:TTRButtonKindNormal tip:@"Tuning trim -5 cent (move the rows down)" action:^{ [weak nudgeTuning:-1]; }];
+    _tuningPlus = [self addButton:@"+" kind:TTRButtonKindNormal tip:@"Tuning trim +5 cent (move the rows up), at most 50 cent" action:^{ [weak nudgeTuning:1]; }];
+    _tuningReadout = [[TTRReadout_v1 alloc] initWithFrame:NSZeroRect];
+    _tuningReadout.title = @"Tuning";
+    _tuningReadout.toolTip = @"Detected deviation of the sample from A = 440 Hz (plus your trim). The rows follow it while Align is on";
+    [self addSubview:_tuningReadout];
     _snap = [[TTRDropdown_v1 alloc] initWithFrame:NSZeroRect];
     _snap.title = @"Snap";
     NSMutableArray* names = [NSMutableArray array];
     for (int i = 0; i < ttr::kNumSnapModes; ++i) [names addObject:[NSString stringWithUTF8String:ttr::snapName(i)]];
     _snap.items = names;
-    _snap.toolTip = @"Grid for drawn notes and for the exported MIDI (hold Alt to draw without snap)";
+    _snap.toolTip = @"Snap: Onset (default) snaps note starts and ends to detected onsets and line ends; 1/4 to 1/32 snap to the grid (also for the exported MIDI); Off is free. Hold Alt to draw without snap";
     _snap.onChange = ^(NSInteger i) { [weak editParam:ttr::kParamSnap value:float(i)]; };
     [self addSubview:_snap];
     _quickGrabKnob = [self addKnob:@"Quick Grab" param:ttr::kParamQuickGrab tip:@"How far below the strongest line Quick Grab still picks up notes" format:percent];
@@ -319,6 +329,13 @@ static NSString* formatSpeed(double speed) {
     [self updateEditStates];
     _soloButton.isOn = _kernel->param(ttr::kParamSolo) >= 0.5f;
     _hideDrumsButton.isOn = _kernel->param(ttr::kParamHideDrums) >= 0.5f;
+    const ttr::LineView lineView = _kernel->lineView();
+    _fundamentalsButton.isOn = lineView.fundamentals;
+    _alignButton.isOn = lineView.alignToSample;
+    _tuningReadout.value = [self tuningText];
+    _tuningReadout.isHighlighted = lineView.alignToSample && _kernel->detectedTuningCents() != 0.0;
+    _tuningMinus.isEnabled = lineView.trimCents > -ttr::kMaxTrimCents;
+    _tuningPlus.isEnabled = lineView.trimCents < ttr::kMaxTrimCents;
     _magnetButton.isOn = _kernel->param(ttr::kParamMagnet) >= 0.5f;
     for (const auto& pair : std::vector<std::pair<TTRKnob_v1*, ttr::ParamId>>{{_gainKnob, ttr::kParamGain}, {_rangeKnob, ttr::kParamRange}, {_quickGrabKnob, ttr::kParamQuickGrab},
                                                                               {_soundKnob, ttr::kParamSoundVolume}, {_mixKnob, ttr::kParamMix}})

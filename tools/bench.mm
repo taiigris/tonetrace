@@ -14,7 +14,10 @@
 #include "TestKernel.h"
 #include "TestSignals.h"
 #include "UiEvents.h"
+#include "analysis/LineBuilder.h"
+#include "analysis/LiveLines.h"
 #include "analysis/LiveSpectrum.h"
+#include "analysis/SpectralFrames.h"
 #include "core/NoteEdit.h"
 #import "ui/TTRHeatmap.h"
 #import "ui/TTRMainViewInternal.h"
@@ -158,6 +161,9 @@ void benchWorker() {
     // live phase: the worker advances the live spectrogram + live HPSS as the audio arrives (here in 50 ms chunks); busy time per audio second
     LiveSpectrum liveSpectrum;
     liveSpectrum.prepare(kRate, 120.0);
+    LiveLines liveLines;
+    liveLines.prepare(liveSpectrum.decimatedRate(), liveSpectrum.maxFrames());
+    double linesBusy = 0.0;
     const size_t chunk = size_t(kRate * 0.05);
     const double liveStart = nowSeconds();
     double worstChunkMs = 0.0;
@@ -165,11 +171,22 @@ void benchWorker() {
         const double t0 = nowSeconds();
         liveSpectrum.advance(signal.data(), available);
         worstChunkMs = std::max(worstChunkMs, (nowSeconds() - t0) * 1e3);
+        const double t1 = nowSeconds();
+        liveLines.advance(liveSpectrum.decimated(), liveSpectrum.decimatedCount());
+        linesBusy += nowSeconds() - t1;
     }
-    const double liveFactor = (nowSeconds() - liveStart) / kSeconds;
+    const double liveFactor = (nowSeconds() - liveStart - linesBusy) / kSeconds, linesFactor = linesBusy / kSeconds;
     const bool caughtUp = liveSpectrum.harmonicFrames() >= liveSpectrum.frames() - liveSpectrum.harmonicDelay() - 1 && liveSpectrum.frames() > 2000;
     line("- live spectrogram + live HPSS: %d frames (%d with the harmonic part, delay %d frames = %.0f ms), busy time %.4f s per audio second, slowest 50 ms chunk %.2f ms",
          liveSpectrum.frames(), liveSpectrum.harmonicFrames(), liveSpectrum.harmonicDelay(), liveSpectrum.harmonicDelay() * liveSpectrum.hopSec() * 1e3, liveFactor, worstChunkMs);
+    line("- live pitch lines (multi-resolution peaks + tracking): %d frames, busy time %.4f s per audio second", liveLines.frames(), linesFactor);
+    {  // the offline pass on its own (decimation + peaks + tracks + onsets + tuning)
+        const double t0 = nowSeconds();
+        const DecimatedSignal reduced = decimate(signal.data(), signal.size(), kRate);
+        const auto lines = computePitchLines(reduced.samples.data(), long(reduced.samples.size()), reduced.sampleRate, nullptr);
+        line("- pitch lines of the final analysis on their own: %.2f s for %.0f s of audio (%zu tracks, tuning %+.1f ct)", nowSeconds() - t0, kSeconds,
+             lines ? lines->tracks.size() : size_t(0), lines ? double(lines->tuningCents) : 0.0);
+    }
     // the same through the kernel: record 60 s, the worker follows
     k.setParam(kParamRecord, 1.0f);
     std::vector<float> l(512), r(512);
@@ -187,7 +204,7 @@ void benchWorker() {
     const bool done = tk::waitFor([&] { return k.status() == KernelStatus::Idle && k.snapshot() && k.snapshot()->hasRecording(); }, 120000);
     const double finalSeconds = nowSeconds() - stopAt;
     const double finalFactor = finalSeconds / kSeconds;
-    line("- final analysis after Stop (spectrogram, HPSS, peaks, key, stored audio): %.2f s for %.0f s of audio, real-time factor %.4f", finalSeconds, kSeconds, finalFactor);
+    line("- final analysis after Stop (spectrogram, HPSS, peaks, key, stored audio, pitch lines): %.2f s for %.0f s of audio, real-time factor %.4f", finalSeconds, kSeconds, finalFactor);
 
     const double grabStart = nowSeconds();
     const bool started = k.startQuickGrab();
@@ -198,6 +215,7 @@ void benchWorker() {
 
     line("\n| Target | measured | limit | |\n|---|---|---|---|");
     target(caughtUp && liveFactor < kWorkerTarget, "Live analysis (spectrogram + live HPSS): real-time factor", liveFactor, "", kWorkerTarget);
+    target(liveLines.frames() > 2000 && linesFactor < kWorkerTarget, "Live pitch lines: real-time factor", linesFactor, "", kWorkerTarget);
     target(done && finalFactor < kWorkerTarget, "Final analysis: real-time factor", finalFactor, "", kWorkerTarget);
     target(started && grabSeconds / kSeconds < kWorkerTarget, "Quick Grab: real-time factor", grabSeconds / kSeconds, "", kWorkerTarget);
     k.deactivate();
@@ -347,7 +365,7 @@ int main(int argc, const char* argv[]) {
         pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
         for (int i = 1; i + 1 < argc; ++i)
             if (std::string(argv[i]) == "--markdown") gMarkdown = fopen(argv[i + 1], "w");
-        line("# Tonetrace %s - performance", "4.0.0");
+        line("# Tonetrace %s - performance", "4.1.0");
         line("\nMeasured by `tonetrace_bench` on this Mac (%s), Release build, universal binary running natively.", NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String);
         benchMemory();  // first: later benchmarks leave freed heap behind that would hide the allocations
         benchAudio();

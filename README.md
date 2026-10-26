@@ -2,14 +2,16 @@
 
 **Tonetrace** is a macOS VST3 effect: record a sample, see it as a spectrogram note map, draw the notes yourself and drag them out as MIDI. It runs on Apple Silicon and Intel (universal), in Ableton Live 12, FL Studio for Mac and other VST3 hosts. Quick start: install from the ZIP (`./install.sh`), rescan plug-ins, load Tonetrace on the audio track, press Record, play the sample, draw notes, drag MIDI into a MIDI track. Everything below is in German.
 
-Tonetrace 4.0.0: ein Sample aufnehmen, als Spektrogramm sehen, die Noten selbst zeichnen und als MIDI in eine Spur ziehen.
+Tonetrace 4.1.0: ein Sample aufnehmen, jeden Ton als dünne Linie auf seiner exakten Tonhöhe sehen, per Klick auf die Linie als Note übernehmen und als MIDI in eine Spur ziehen.
 
 ![Tonetrace](docs/screenshot.png)
 
 ## Features
 
-- **Live-Spektrogramm** als Note-Map mit Waveform und Klaviatur, wächst während der Aufnahme mit (bis 120 s).
-- **Noten selbst zeichnen** per Klick-Ziehen, mit Snap (1/4 bis 1/32) und Magnet (rastet auf die hellste Linie ein).
+- **Präzise Note-Map (4.1)**: statt Halbton-Balken zeigt die Map pro Frame nur die spektralen Peaks als dünne, scharfe Linien auf schwarzem Grund, exakt auf ihrer Tonhöhe (Auflösung besser als ±5 ct), mit Waveform und Klaviatur, live während der Aufnahme (bis 120 s). Zeilenraster wie in einer Piano Roll.
+- **Click-to-grab**: ein Klick auf eine Linie legt eine Note über das ganze Liniensegment an. Ziehen zeichnet weiter von Hand.
+- **Fundamentals**: Obertöne werden abgedunkelt, jede Note zeigt nur ihre Grundlinie. **Tuning / Align**: die Stimmung des Samples wird erkannt und das Halbtonraster danach ausgerichtet.
+- **Snap** (Onset, 1/4 bis 1/32, Off) und Magnet (rastet auf die stärkste Linie ein), Hover-Label ("A4 −12 ct") und Ghost-Note.
 - **Bearbeiten**: verschieben, Länge ändern, Lasso, duplizieren, löschen, Undo/Redo (mindestens 50 Schritte).
 - **Hide drums**: zeigt nur den harmonischen Anteil, auch live während der Aufnahme.
 - **Quick Grab** (optional): Startpunkt aus den stärksten Linien, danach normal editierbar.
@@ -17,7 +19,7 @@ Tonetrace 4.0.0: ein Sample aufnehmen, als Spektrogramm sehen, die Noten selbst 
 - **MIDI-Export** per Drag & Drop oder **Save .mid** (SMF Typ 1, 960 PPQ, Aufnahme-Tempo).
 - Sichtbare Knöpfe und Kontextmenü für Undo, Redo, Delete, Duplicate (Hosts fangen manche Tasten ab).
 - **About-Overlay** (Klick auf das Logo) und **Diagnosepanel** mit Version, Host, DSP-Last, Log-Ordner und Berichtsfunktion.
-- State speichert Spektrogramm, Noten und Parameter, Projekte aus Version 3 laden weiter.
+- State speichert Spektrogramm, Audio, Noten und Parameter, Projekte aus Version 3 und 4.0 laden weiter (die Linien werden dabei im Hintergrund neu berechnet).
 - Kein JUCE und kein Fremdcode außer dem VST3 SDK (nur die VST3-Hülle nutzt es).
 
 ## Systemanforderungen
@@ -27,10 +29,10 @@ Tonetrace 4.0.0: ein Sample aufnehmen, als Spektrogramm sehen, die Noten selbst 
 
 ## Installation
 
-Aus der ZIP [`releases/Tonetrace-4.0.0-macOS.zip`](releases/Tonetrace-4.0.0-macOS.zip) (SHA-256 in [`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)):
+Aus der ZIP [`releases/Tonetrace-4.1.0-macOS.zip`](releases/Tonetrace-4.1.0-macOS.zip) (SHA-256 in [`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt); selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`):
 
 ```bash
-unzip Tonetrace-4.0.0-macOS.zip && cd Tonetrace-4.0.0
+unzip Tonetrace-4.1.0-macOS.zip && cd Tonetrace-4.1.0
 ./install.sh
 ```
 
@@ -60,14 +62,30 @@ Tonetrace aktivieren und in einen Mixer-Slot laden, auf dem das Sample liegt.
 
 1. Tonetrace als Effekt auf die Spur mit dem Sample legen.
 2. **Record** (roter Knopf) drücken und das Sample im Host abspielen. Nochmal drücken beendet die Aufnahme.
-3. Helle Linien sind Töne. Mit **Gain** und **Range** die Anzeige anpassen.
-4. Noten per Klick-Ziehen auf die hellen Linien zeichnen.
+3. Helle Linien sind Töne, Obertöne sind dunkel. Mit **Gain** und **Range** die Anzeige anpassen.
+4. Auf eine Linie klicken: die Note entsteht über das ganze Segment. Oder per Klick-Ziehen selbst zeichnen.
 5. **Drag MIDI** in eine MIDI-Spur ziehen (oder **Save .mid**).
 
 ## Bedienung im Detail
 
-- **Zeichnen:** Klick-Ziehen auf leerer Fläche, die Note entsteht in der Zeile unter dem Cursor. **Snap** rastet Anfang und Ende
-  nach Host-BPM ein (`Alt` = ohne Snap), **Magnet** zieht die Tonhöhe auf die hellste Zeile innerhalb von ±1 Halbton.
+- **Linien lesen:** Jede Linie ist ein Peak des Spektrums (Helligkeit = Pegel, **Gain** und **Range** wirken darauf). Dezente Zeilen wie in einer
+  Piano Roll: Zeilen der schwarzen Tasten dunkler, C-Zeilen heller. Der Rest bleibt schwarz.
+- **Hover:** Die Zeile unter dem Cursor wird über die ganze Breite hervorgehoben, die passende Taste der Klaviatur leuchtet, und ein Label am Cursor
+  nennt Note und Abweichung der Linie in Cent ("A4 −12 ct"; ohne Linie nur den Zeilennamen). Über einer Linie wird das ganze zusammenhängende
+  Segment umrandet.
+- **Click-to-grab:** Ein einfacher Klick auf eine Linie (ohne Ziehen) legt eine Note über das Segment an: Anfang und Ende des Segments, Zeile der Linie.
+  Die Linie leuchtet kurz auf, Undo nimmt es zurück. Ein zweiter Klick auf dieselbe Stelle wählt die Note aus.
+- **Ghost-Note:** Vor dem Klick zeigt eine halbtransparente Vorschau mit Label ("C#4 · 1/8"), wo die Note landen würde: auf einer Linie das ganze
+  Segment, sonst eine kurze Note auf der Zeile unter dem Cursor.
+- **Zeichnen:** Klick-Ziehen auf leerer Fläche, die Note entsteht in der Zeile unter dem Cursor. Gezeichnete Noten sind schmaler als die Zeile und
+  genau mittig. **Magnet** zieht die Tonhöhe auf die stärkste Linie innerhalb von ±1 Halbton (Grundlinien zählen voll, Obertöne wenig).
+- **Snap:** *Onset* (Standard) rastet Anfang und Ende auf erkannte Onsets und Linienenden ein (±80 ms), *1/4* bis *1/32* auf das Raster nach Host-BPM
+  (auch beim MIDI-Export), *Off* ist frei. `Alt` = vorübergehend ohne Snap.
+- **Fundamentals** (Standard an): Peaks, die sehr wahrscheinlich Obertöne (2x bis 6x und höher, ±30 ct) einer gleichzeitig stärkeren, tieferen Linie
+  sind, werden auf 20 % abgedunkelt (nicht gelöscht). Quick Grab bevorzugt Grundlinien. **Hide drums** blendet Schlagzeug-Linien aus.
+- **Tuning / Align:** Das Panel zeigt die erkannte Abweichung des Samples von A = 440 Hz ("Tuning +23 ct"). **Align** (Standard an) verschiebt das
+  Halbtonraster um diesen Wert, damit die Linien mittig in den Zeilen liegen und Noten die richtige MIDI-Tonhöhe bekommen. **− / +** trimmt von
+  Hand in 5-ct-Schritten (±50 ct). Der MIDI-Export und die Preview bleiben bei A = 440 Hz.
 - **Bearbeiten:** Mitte ziehen verschiebt (alle gewählten Noten gemeinsam), die Ränder (6 px) ändern die Länge, Doppelklick löscht,
   Rechtsklick öffnet das Menü. Klick wählt, `Shift`-Klick schaltet um, `Cmd`-Ziehen zieht ein Lasso.
 - **Quick Grab:** Regler (0 bis 100 %) und **Grab** erzeugen Noten aus den stärksten Linien. Ohne Klick passiert nichts.
@@ -128,7 +146,7 @@ cd ../..
 |---|---|
 | `./build.sh` | Build, Unit-Tests, UI-Test, Benchmark, Installation, Signierung, validator, Hosttest, Screenshots, Absturzbericht-Prüfung |
 | `./build.sh --no-install` | nur bauen, Unit-Tests und UI-Test |
-| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-4.0.0-macOS.zip` |
+| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-4.1.0-macOS.zip` |
 | `tools/make_icon.sh` | rendert Logo-PNGs, `docs/logo.png` und `assets/logo/Tonetrace.icns` neu (sind eingecheckt) |
 
 Die Version steht nur in `VERSION`, der Build-Hash (git) im About-Overlay und im Diagnosepanel.
@@ -138,7 +156,7 @@ Die Version steht nur in `VERSION`, der Build-Hash (git) im About-Overlay und im
 ```
 src/vst3/      VST3: Processor, Controller (Parameter, State), Entry/Factory, NSView-Editor
 src/core/      Kernel (plattformneutral): Capture, Preview, Analyse-Thread, Notenmodell, Snapshot, Diagnose, Log
-src/analysis/  Live-Spektrum, Waveform-Peaks, HPSS/Drum-Filter, Noten-Analyse, Quick Grab, Tonart, FFT
+src/analysis/  Live-Spektrum, Pitch-Lines (Mehrfachauflösung, Tracking, Onsets, Tuning), Waveform-Peaks, HPSS/Drum-Filter, Noten-Analyse, Quick Grab, Tonart, FFT
 src/capture/   vorab allokierter Aufnahmepuffer (120 s)
 src/midi/      MIDI-Writer (SMF Typ 1) und Export-Planer
 src/preview/   Preview-Synth, lock-freie Notenübergabe
@@ -156,14 +174,34 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 
 - Audio-Thread (48 kHz, 64 Frames): Idle 0,003 % Mittel, Record 0,007 %, Preview mit 16 Stimmen und Limiter 0,45 % Mittel, Spitze unter 2 % (Ziel unter 10 %). Keine Allokation, keine Locks.
 - Speicher pro Instanz: leer wenige MB, 120 s Aufnahme bei 44,1 kHz ca. 38 MB (nach der Analyse ca. 91 MB), bei 192 kHz ca. 109 MB. Der Puffer wird erst beim Aufnehmen belegt.
-- Analyse: live in Echtzeitfaktor 0,002, Endanalyse von 60 s Audio in 0,2 s, Quick Grab in 0,01 s.
+- Analyse: live (Spektrum und Pitch-Lines) je Echtzeitfaktor 0,002, Endanalyse inklusive Pitch-Lines von 60 s Audio in ca. 0,5 s, Quick Grab in 0,01 s. Editor: Frame mit 120 s Aufnahme unter 8 ms (gemessen ca. 5 bis 6 ms, auch während der Aufnahme).
 
 ## Bekannte Einschränkungen
 
 - Ableton Live und FL Studio wurden bei der Entwicklung nicht gestartet: geprüft sind Hosttest, UI-Test und Validator.
 - Der Editor funktioniert nur, wenn Processor und Controller im selben Prozess laufen (alle gängigen Mac-Hosts).
 - Die Live-Trennung bei Hide drums kennt nur die Vergangenheit und weicht leicht vom Ergebnis nach dem Stoppen ab.
-- Bass unter ca. E2 (82 Hz) ist wegen der Fensterlänge nur grob aufgelöst.
+- Bass unter ca. E2 (82 Hz) ist wegen der Fensterlänge nur grob aufgelöst, und tiefe Töne haben unschärfere Anfänge und Enden (Fenster bis 0,74 s, Kanten ca. ±50 ms).
+- Die Linien werden nicht im State gespeichert: bei Aufnahmen über 60 s, deren Audio nicht im State liegt, zeigt die Map nach dem Laden die alte Halbton-Heatmap.
+- Ein Oberton, der genau auf der Tonhöhe einer anderen Note liegt (z. B. eine Melodienote zwei Oktaven über dem Bass), wird mit Fundamentals abgedunkelt: dann Fundamentals ausschalten.
+- Preview und MIDI bleiben bei A = 440 Hz, auch wenn das Raster um das erkannte Tuning verschoben ist.
+- Das Default-Snap ist jetzt *Onset*: neue Instanzen starten damit, gespeicherte Projekte behalten ihren Wert.
+
+## Changelog
+
+### 4.1.0 – präzise Note-Map
+
+- Die Map zeigt dünne, scharfe Peak-Linien auf der exakten Tonhöhe statt ganzer Halbton-Balken (Peak-Map, Mehrfachauflösung, parabolische Interpolation, Peak-Tracking mit ±40 ct und Lücken bis 2 Frames). Die alte Heatmap bleibt als Rückfall für Aufnahmen ohne Linien.
+- Neu: Click-to-grab, Ghost-Note, Hover-Label mit Cent-Abweichung, Zeilen-Hervorhebung und Tasten-Leuchten, Segment-Outline, kurzes Aufleuchten der Linie nach dem Anlegen.
+- Neu: **Fundamentals** (Obertöne abdunkeln), **Tuning-Erkennung** mit **Align** und manuellem Trim (±50 ct), Snap-Modus **Onset** (Standard) mit eigener Onset-Erkennung (Spectral Flux, 6 ms Raster).
+- Magnet und Quick Grab nutzen die Linien statt der Zeilenenergie. Gezeichnete Noten sind schmaler und mittig in der Zeile.
+- Piano-Roll-Raster, neue Bedienelemente (Fundamentals, Align, Tuning) mit Tooltips und Statuszeile; Snap-Liste um *Onset* erweitert.
+- State: Format unverändert (v4), Editor-State v2 (liest v1), Projekte aus 4.0 laden weiter.
+- Tests: 84 Unit-Tests (neu: Tuning ±3 ct, Peak-Genauigkeit ≤ 5 ct, Halbton-Trennung E2/F2 und C5/C#5, Obertöne ≤ 25 %, Vibrato, Click-to-grab ±30 ms, Onset-Snap ±15 ms, Migration), UI-Test mit Hover-Label, Ghost und Click-to-grab.
+
+### 4.0.0
+
+Map & Draw: Live-Spektrogramm, Noten zeichnen, MIDI-Export, Preview, Diagnose (siehe oben).
 
 ## Lizenzhinweise
 

@@ -133,7 +133,7 @@ TEST(logger_is_written_by_the_worker_never_by_the_audio_thread) {
     CHECK(log.find("record stop") != std::string::npos);
     CHECK(log.find("first block: 512 frames") != std::string::npos);
     CHECK(log.find("analysis:") != std::string::npos);
-    CHECK(log.find("Tonetrace 4.0.0") != std::string::npos);
+    CHECK(log.find("Tonetrace 4.1.0") != std::string::npos);
     bool audioWroteLog = false;
     for (std::thread::id id : Logger::instance().writerThreads()) audioWroteLog |= id == audioThread;
     CHECK(!audioWroteLog);  // ... but only through the worker / main thread

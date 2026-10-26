@@ -9,7 +9,7 @@
 namespace {
 
 const CGFloat kMinBeatPixels = 7.0, kMinBarPixels = 10.0;
-const CGFloat kNoteLabelMinWidth = 28.0, kNoteLabelMinRow = 11.0;
+const CGFloat kNoteLabelMinWidth = 28.0, kNoteLabelMinHeight = 9.0;
 const double kFrameAverageWeight = 0.1;
 
 void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
@@ -48,7 +48,9 @@ NSString* formatClock(double t) {
     CGContextClipToRect(ctx, b);
     [self drawHeat:ctx];
     [self drawBeatGrid:ctx];
+    [self drawHover:ctx];
     [self drawNotes];
+    [self drawGhostAndLabel:ctx];
     [self drawRecordingEdge:ctx];
     [self drawPlayhead:ctx];
     if (_gesture == TTRGestureLasso && _gestureStarted) {
@@ -66,6 +68,7 @@ NSString* formatClock(double t) {
 - (void)drawHeat:(CGContextRef)ctx {
     const NSRect b = self.bounds;
     const BOOL isLive = _status != ttr::KernelStatus::Idle;
+    if (_mv.linePoints && _mv.lineFrames > 0) { [self drawLines:ctx live:isLive]; return; }
     const BOOL useHarmonic = _kernel->param(ttr::kParamHideDrums) >= 0.5f && _mv.harmonic != nullptr;
     TTRHeatParams p;
     p.data = useHarmonic ? _mv.harmonic : _mv.raw;
@@ -81,6 +84,28 @@ NSString* formatClock(double t) {
     if (isLive) owner = _mv.hold[useHarmonic ? 1 : 0];
     else if (_mv.snapshot) owner = _mv.snapshot->spectrogram;
     _tiles.draw(ctx, p, std::move(owner), _mv.generation, isLive);
+}
+
+// Thin pitch lines on the piano-roll grid (heat map only for recordings without lines, e.g. restored long ones).
+- (void)drawLines:(CGContextRef)ctx live:(BOOL)isLive {
+    const NSRect b = self.bounds;
+    TTRHeatParams p;
+    p.linePoints = _mv.linePoints;
+    p.lineCounts = _mv.lineCounts;
+    p.frames = _mv.lineFrames;
+    p.isLive = isLive;
+    p.fundamentals = _kernel->lineView().fundamentals;
+    p.hideDrums = _kernel->param(ttr::kParamHideDrums) >= 0.5f;
+    p.tuningCents = float([self tuningCents]);
+    p.hopSec = _mv.lines ? _mv.lines->hopSec : _mv.hopSec;
+    p.reference = _mv.linePeak;
+    p.scrollSec = _vp->scrollSec; p.pxPerSec = _vp->pxPerSec; p.scrollY = _vp->scrollY; p.rowH = _vp->rowH;
+    p.width = b.size.width; p.height = b.size.height;
+    p.scale = self.window ? self.window.backingScaleFactor : 1.0;
+    p.gain = _kernel->param(ttr::kParamGain);
+    p.range = _kernel->param(ttr::kParamRange);
+    TTRDrawRowGrid(ctx, p);
+    _tiles.draw(ctx, p, _mv.lineHold, _mv.generation, isLive);
 }
 
 - (void)drawBeatGrid:(CGContextRef)ctx {
@@ -99,15 +124,17 @@ NSString* formatClock(double t) {
 
 - (void)drawNotes {
     const std::vector<ttr::NoteEvent>& notes = [self notes];
-    NSDictionary* labelAttrs = TTRTextAttrs(TTRFont(9, NSFontWeightBold), TTRHex(0xFFFFFF, 0.95));
     const NSRect b = self.bounds;
     for (const ttr::NoteEvent& n : notes) {
         const NSRect r = [self rectForNote:n];
+        const CGFloat fontSize = r.size.height >= 11 ? 9 : 8;
+        NSDictionary* labelAttrs = TTRTextAttrs(TTRFont(fontSize, NSFontWeightBold), TTRHex(0xFFFFFF, 0.95));
         if (NSMaxX(r) < 0 || r.origin.x > b.size.width || NSMaxY(r) < 0 || r.origin.y > b.size.height) continue;
-        TTRFillRounded(r, 3, n.selected ? TTRHex(0xFF9F43, 0.62) : TTRHex(0x19E6A0, 0.55));
-        TTRStrokeRounded(r, 3, n.selected ? TTRHex(0xFFC27A) : TTRHex(0x7DFFD0), 1.5);
-        if (r.size.width > kNoteLabelMinWidth && _vp->rowH >= kNoteLabelMinRow)
-            [TTRNoteName(n.pitch) drawAtPoint:NSMakePoint(r.origin.x + 5, r.origin.y + (r.size.height - 11) / 2 - 0.5) withAttributes:labelAttrs];
+        const CGFloat radius = MIN(3.0, r.size.height / 3.0);
+        TTRFillRounded(r, radius, n.selected ? TTRHex(0xFF9F43, 0.80) : TTRHex(0x19E6A0, 0.74));
+        TTRStrokeRounded(r, radius, n.selected ? TTRHex(0xFFD2A0) : TTRHex(0x8CFFDA), 1.2);
+        if (r.size.width > kNoteLabelMinWidth && r.size.height >= kNoteLabelMinHeight)
+            [TTRNoteName(n.pitch) drawAtPoint:NSMakePoint(r.origin.x + 5, r.origin.y + (r.size.height - (fontSize + 2)) / 2 - 0.5) withAttributes:labelAttrs];
     }
 }
 
@@ -127,13 +154,10 @@ NSString* formatClock(double t) {
     fillRect(ctx, CGRectMake(x, 0, 1.5, self.bounds.size.height), 0xFFFFFF, 0.9);
 }
 
+// The hovered row is highlighted by -drawHover; the pointer only gets a faint vertical time marker.
 - (void)drawCrosshair:(CGContextRef)ctx {
     if (!_vp->hasCursor) return;
-    const CGFloat x = floor(_vp->xForTime(_vp->cursorSec)) + 0.5;
-    const CGFloat y = floor((ttr::kMaxNote + 0.5 - _vp->cursorPitch) * _vp->rowH - _vp->scrollY) + 0.5;
-    const NSRect b = self.bounds;
-    fillRect(ctx, CGRectMake(x, 0, 1, b.size.height), 0xFFFFFF, 0.55);
-    fillRect(ctx, CGRectMake(0, y, b.size.width, 1), 0xFFFFFF, 0.55);
+    fillRect(ctx, CGRectMake(floor(_vp->xForTime(_vp->cursorSec)) + 0.5, 0, 1, self.bounds.size.height), 0xFFFFFF, 0.22);
 }
 
 // ------------------------------------------------------------ overlays

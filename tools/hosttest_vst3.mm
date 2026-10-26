@@ -39,7 +39,7 @@ int main(int argc, const char* argv[]) {
         check(classCount == 2 && audioClass != nullptr, "factory has the processor and the controller class");
         if (!audioClass) return 1;
         check(audioClass->subCategoriesString() == "Fx|Analyzer", "category Fx|Analyzer");
-        check(audioClass->version() == "4.0.0" && audioClass->version() == TTR_VERSION_STRING, "the VST3 ClassInfo reports version 4.0.0 (not 2.0.0)");
+        check(audioClass->version() == "4.1.0" && audioClass->version() == TTR_VERSION_STRING, "the VST3 ClassInfo reports version 4.1.0 (not 2.0.0)");
         bool controllerVersion = false;
         for (const auto& info : classes) if (info.category() == kVstComponentControllerClass) controllerVersion = info.version() == TTR_VERSION_STRING;
         check(controllerVersion, "the controller class reports the same version");
@@ -63,7 +63,7 @@ int main(int argc, const char* argv[]) {
         ParameterInfo info{};
         check(a.controller->getParameterInfo(ttr::kParamBypass, info) == kResultOk && (info.flags & ParameterInfo::kIsBypass), "Bypass parameter is flagged kIsBypass");
         check(std::fabs(a.controller->getParamNormalized(ttr::kParamHideDrums) - 1.0) < 1e-9, "Hide drums defaults to on");
-        check(std::fabs(a.controller->getParamNormalized(ttr::kParamSnap) - 0.75) < 1e-9, "Snap defaults to 1/16");
+        check(std::fabs(a.controller->getParamNormalized(ttr::kParamSnap) - 1.0) < 1e-9, "Snap defaults to Onset (last of 6 entries)");
 
         printf("3. Record on / off, spectrogram and peaks\n");
         const double length = 6.5;

@@ -95,8 +95,11 @@
         TTRDrawText(_value ?: @"-", NSMakeRect(0, 16, b.size.width, b.size.height - 18), TTRMono(13, NSFontWeightSemibold), _isHighlighted ? TTR_ACCENT : TTR_TEXT, NSTextAlignmentCenter);
         return;
     }
-    TTRDrawText([_title uppercaseString], NSMakeRect(11, 0, 40, b.size.height), titleFont, TTR_DIM, NSTextAlignmentLeft, 0.8);
-    TTRDrawText(_value ?: @"-", NSMakeRect(50, 0, b.size.width - 50 - 11, b.size.height), TTRMono(13, NSFontWeightSemibold), _isHighlighted ? TTR_ACCENT : TTR_TEXT, NSTextAlignmentRight);
+    const CGFloat titleW = TTRTextWidth([_title uppercaseString], titleFont, 0.8), valueX = 11 + MAX(40.0, titleW + 6);
+    TTRDrawText([_title uppercaseString], NSMakeRect(11, 0, titleW + 2, b.size.height), titleFont, TTR_DIM, NSTextAlignmentLeft, 0.8);
+    NSFont* valueFont = TTRMono(13, NSFontWeightSemibold);
+    for (CGFloat size = 12; size >= 10 && TTRTextWidth(_value ?: @"-", valueFont) > b.size.width - valueX - 8; size -= 1) valueFont = TTRMono(size, NSFontWeightSemibold);
+    TTRDrawText(_value ?: @"-", NSMakeRect(valueX, 0, b.size.width - valueX - 11, b.size.height), valueFont, _isHighlighted ? TTR_ACCENT : TTR_TEXT, NSTextAlignmentRight);
 }
 
 @end

@@ -39,7 +39,7 @@ inline const ParamSpec& paramSpec(int id) {
         {"Range", ParamKind::Continuous, 0.0f, 1.0f, 0.5f},
         {"Speed", ParamKind::Continuous, kSpeedMin, kSpeedMax, 1.0f},
         {"Hide drums", ParamKind::Boolean, 0.0f, 1.0f, 1.0f},
-        {"Snap", ParamKind::Indexed, 0.0f, 4.0f, 3.0f},
+        {"Snap", ParamKind::Indexed, 0.0f, 5.0f, 5.0f},
         {"Magnet", ParamKind::Boolean, 0.0f, 1.0f, 1.0f},
         {"Quick Grab", ParamKind::Continuous, 0.0f, 1.0f, 0.0f},
         {"Sound", ParamKind::Continuous, 0.0f, 1.0f, 0.7f},

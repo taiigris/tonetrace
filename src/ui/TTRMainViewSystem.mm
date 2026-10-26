@@ -92,6 +92,7 @@ static const double kViewportEpsilon = 0.5, kFpsWindowSeconds = 1.0;
     const ttr::UiSettings ui = _bridge->uiSettings();
     _vp->scrollSec = ui.scrollSec;
     if (ui.scrollY >= 0.0) _vp->scrollY = ui.scrollY;
+    _kernel->setLineView({ui.fundamentals, ui.alignToSample, ui.tuningTrim});
     _storedScrollSec = ui.scrollSec;
     _storedScrollY = _vp->scrollY;
     _storedSize = self.bounds.size;

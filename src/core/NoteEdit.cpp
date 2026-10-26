@@ -1,23 +1,26 @@
 #include "core/NoteEdit.h"
 
+#include "analysis/PitchLines.h"
+
 #include <algorithm>
 #include <cmath>
 
 namespace ttr {
 
 const char* snapName(int mode) {
-    static const char* names[kNumSnapModes] = {"Off", "1/4", "1/8", "1/16", "1/32"};
+    static const char* names[kNumSnapModes] = {"Off", "1/4", "1/8", "1/16", "1/32", "Onset"};
     return names[std::clamp(mode, 0, kNumSnapModes - 1)];
 }
 
 double snapGridBeats(int mode) {
-    static const double grid[kNumSnapModes] = {0.0, 1.0, 0.5, 0.25, 0.125};
+    static const double grid[kNumSnapModes] = {0.0, 1.0, 0.5, 0.25, 0.125, 0.0};
     return grid[std::clamp(mode, 0, kNumSnapModes - 1)];
 }
 
 double gridStepSec(const TimeGrid& g) { return snapGridBeats(g.snapMode) / g.beatsPerSec(); }
 
 double snapTime(double sec, const TimeGrid& g) {
+    if (g.snapMode == kSnapOnset) return g.lines ? g.lines->snapToEdge(sec) : sec;
     const double step = snapGridBeats(g.snapMode);
     if (step <= 0.0) return sec;
     const double beat = g.startPpq + sec * g.beatsPerSec();

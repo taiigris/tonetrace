@@ -1,4 +1,4 @@
-Tonetrace 4.0.0 (macOS, VST3)
+Tonetrace 4.1.0 (macOS, VST3)
 
 Installation
   1. In diesem Ordner im Terminal ausfuehren:  ./install.sh

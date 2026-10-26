@@ -7,6 +7,7 @@
 #include <thread>
 #include <vector>
 
+#include "analysis/LiveLines.h"
 #include "analysis/LiveSpectrum.h"
 #include "analysis/TaskControl.h"
 #include "analysis/WavePeaks.h"
@@ -39,7 +40,22 @@ struct MapView {
     const float* wave = nullptr;      // 2 * waveCount (min, max)
     int waveCount = 0;
     double lengthSec = 0.0;
+    // Pitch lines: the live buffers while recording, the finished lines otherwise (null / 0 frames when not available)
+    const LinePoint* linePoints = nullptr;  // lineFrames * kLineSlots
+    const uint8_t* lineCounts = nullptr;
+    int lineFrames = 0;
+    float linePeak = 0.0f;
+    std::shared_ptr<const void> lineHold;
+    const PitchLines* lines = nullptr;      // finished lines (same object as snapshot->lines)
 };
+
+// View settings of the thin-line map that live in the editor state (UiSettings), not in the host parameters.
+struct LineView {
+    bool fundamentals = true;     // dim overtones
+    bool alignToSample = true;    // shift the semitone grid by the detected tuning
+    float trimCents = 0.0f;       // manual correction, -50..+50
+};
+constexpr float kMaxTrimCents = 50.0f;
 
 class TonetraceKernel {
 public:
@@ -84,6 +100,12 @@ public:
     bool redo();
     bool canUndo() const;
     bool canRedo() const;
+    // Pitch-line view settings (any thread) and the grid offset they result in: detected tuning (when aligned and
+    // reliable) plus the manual trim, in cent.
+    LineView lineView() const;
+    void setLineView(const LineView& view);
+    double tuningOffsetCents() const;
+    double detectedTuningCents(bool* isReliable = nullptr) const;
     int quickGrab();  // adds notes from the strongest lines (Quick Grab parameter); returns how many were new
     // Quick Grab on a background thread: returns false when one is already running or there is nothing to analyse.
     // The result is merged as one undo step and announced as a notice.
@@ -117,6 +139,8 @@ public:
 private:
     void workerLoop();
     void runAnalysis();
+    void startLinesJob();  // pitch lines of a restored recording, on a background thread
+    void stopLinesJob();
     void advanceLive();
     void publishLocked(SnapshotPtr snap);  // requires mutateMutex_
     void publishNotesLocked(std::vector<NoteEvent> notes);
@@ -163,6 +187,11 @@ private:
     CaptureBuffer capture_;
     LiveSpectrum live_;
     PeakBuilder livePeaks_;
+    LiveLines liveLines_;
+    std::atomic<bool> lineAlign_{true}, lineFundamentals_{true};
+    std::atomic<float> lineTrim_{0.0f};
+    std::thread linesThread_;
+    TaskControl linesControl_;
     uint64_t liveSeq_ = 0;  // worker thread only
     PreviewSynth synth_;
     NoteTable table_;

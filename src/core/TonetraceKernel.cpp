@@ -46,6 +46,7 @@ void TonetraceKernel::prepare(double sampleRate, int maxFrames) {
             std::lock_guard<std::mutex> liveLock(liveMutex_);  // the editor may be drawing from these buffers
             live_.prepare(sampleRate_, kMaxRecordSeconds);
             livePeaks_.prepare(sampleRate_, kMaxRecordSeconds);
+            liveLines_.prepare(live_.decimatedRate(), live_.maxFrames());
         }
     } catch (const std::bad_alloc&) {
         logError(instanceId_, "out of memory while preparing %.0f Hz / %d frames", sampleRate_, maxFrames_);
@@ -65,10 +66,12 @@ void TonetraceKernel::prepare(double sampleRate, int maxFrames) {
     logInfo(instanceId_, "prepared: %.0f Hz, max block %d", sampleRate_, maxFrames_);
     workerRun_.store(true);
     worker_ = std::thread([this] { workerLoop(); });
+    startLinesJob();  // a state loaded before the plug-in was activated
 }
 
 void TonetraceKernel::deactivate() {
     cancelQuickGrab();
+    stopLinesJob();
     workerRun_.store(false);
     if (worker_.joinable()) worker_.join();
     drainAudioEvents();

@@ -53,7 +53,7 @@ void testControllerStateAndProcessing(const VST3::Hosting::PluginFactory& factor
     view->onSize(&bigger);
     a.controller->setParamNormalized(ttr::kParamGain, 0.3);
     a.controller->setParamNormalized(ttr::kParamSpeed, toNormalizedSpeed(4.0));
-    a.controller->setParamNormalized(ttr::kParamSnap, 0.25);
+    a.controller->setParamNormalized(ttr::kParamSnap, 0.2);
     a.controller->setParamNormalized(ttr::kParamHideDrums, 0.0);
     pumpRunLoop(0.1);
 
@@ -74,7 +74,7 @@ void testControllerStateAndProcessing(const VST3::Hosting::PluginFactory& factor
     check(std::fabs(b.controller->getParamNormalized(ttr::kParamGain) - 0.3) < 1e-6, "setComponentState syncs the controller (Gain)");
     rewind(controllerState);
     check(b.controller->setState(&controllerState) == kResultOk, "controller setState works");
-    check(std::fabs(b.controller->getParamNormalized(ttr::kParamSnap) - 0.25) < 1e-6 && b.controller->getParamNormalized(ttr::kParamHideDrums) == 0.0 &&
+    check(std::fabs(b.controller->getParamNormalized(ttr::kParamSnap) - 0.2) < 1e-6 && b.controller->getParamNormalized(ttr::kParamHideDrums) == 0.0 &&
               std::fabs(b.controller->getParamNormalized(ttr::kParamSpeed) - toNormalizedSpeed(4.0)) < 1e-6,
           "controller state restores Snap, Hide drums and Speed");
     b.process(nullptr);

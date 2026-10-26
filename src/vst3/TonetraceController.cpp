@@ -156,6 +156,7 @@ void TonetraceController::applyToKernel() {
     for (int id = 0; id < kNumParams; ++id)
         if (!isHostVisible(id)) kernel_->setParam(id, params[size_t(id)]);
     kernel_->setSyncToHost(s.syncToHost);
+    kernel_->setLineView({s.fundamentals, s.alignToSample, s.tuningTrim});
 }
 
 // The view settings follow the live parameter values; window and viewport are what the editor stored last.

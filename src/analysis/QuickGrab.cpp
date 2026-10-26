@@ -1,5 +1,8 @@
 #include "analysis/QuickGrab.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "analysis/NoteAnalyzer.h"
 
 namespace ttr {
@@ -11,6 +14,35 @@ std::vector<NoteEvent> quickGrabNotes(const Spectrogram& spectrogram, float amou
     if (control) control->report(1.0f);
     for (NoteEvent& n : notes) { n.strength = 1.0f; n.selected = false; }
     return notes;
+}
+
+std::vector<NoteEvent> quickGrabFromLines(const PitchLines& lines, float amount, double tuningCents, const FilterSettings& filter) {
+    constexpr double kMinGrabSec = 0.06;
+    std::vector<NoteEvent> notes;
+    const float threshold = lines.peak * std::pow(10.0f, sensitivityToThresholdDb(amount) / 20.0f);
+    for (const LineTrack& t : lines.tracks) {
+        if (t.flags & (kLineHidden | kLineHarmonic)) continue;
+        if (filter.hideDrums && (t.flags & kLineDrum)) continue;
+        if (t.peakLevel < threshold || t.endSec - t.startSec < kMinGrabSec) continue;
+        NoteEvent n;
+        n.pitch = std::clamp(rowOfMidi(t.meanMidi, tuningCents), kMinNote, kMaxNote);
+        n.startSec = std::max(0.0, t.startSec);
+        n.endSec = t.endSec;
+        notes.push_back(n);
+    }
+    std::sort(notes.begin(), notes.end(), [](const NoteEvent& a, const NoteEvent& b) {
+        return a.startSec != b.startSec ? a.startSec < b.startSec : a.pitch < b.pitch;
+    });
+    return notes;
+}
+
+std::vector<NoteEvent> quickGrabSnapshot(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, TaskControl* control) {
+    if (snapshot.lines) {
+        std::vector<NoteEvent> notes = quickGrabFromLines(*snapshot.lines, amount, tuningCents, filter);
+        if (control) control->report(1.0f);
+        return notes;
+    }
+    return snapshot.spectrogram ? quickGrabNotes(*snapshot.spectrogram, amount, filter, control) : std::vector<NoteEvent>{};
 }
 
 }  // namespace ttr

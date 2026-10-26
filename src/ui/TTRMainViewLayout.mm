@@ -25,8 +25,8 @@ static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(
     _scroll.frame = NSMakeRect(mapX, scrollY, mapW, kTTRScrollHeight);
 
     // right panel, top to bottom
-    const CGFloat x = leftW + kPanelPad, w = kTTRPanelWidth - 2 * kPanelPad, half = floor((w - kColumnGap) / 2), gap = lerp(3, 5, t);
-    const CGFloat logoH = lerp(30, 38, t), knobH = lerp(46, 58, t), btnH = lerp(22, 26, t), recH = lerp(46, 60, t), dragH = lerp(26, 32, t), readH = lerp(32, 36, t);
+    const CGFloat x = leftW + kPanelPad, w = kTTRPanelWidth - 2 * kPanelPad, half = floor((w - kColumnGap) / 2), gap = lerp(2, 4, t);
+    const CGFloat logoH = lerp(30, 38, t), knobH = lerp(42, 52, t), btnH = lerp(20, 24, t), recH = lerp(40, 52, t), dragH = lerp(24, 32, t), readH = lerp(34, 36, t);
     CGFloat y = 8 + logoH + gap;
     const CGFloat col2 = x + half + kColumnGap;
 
@@ -40,6 +40,14 @@ static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(
     y += btnH + gap;
     _hideDrumsButton.frame = NSMakeRect(x, y, half, btnH);
     _magnetButton.frame = NSMakeRect(col2, y, half, btnH);
+    y += btnH + gap;
+    _fundamentalsButton.frame = NSMakeRect(x, y, half, btnH);
+    _alignButton.frame = NSMakeRect(col2, y, half, btnH);
+    y += btnH + gap;
+    const CGFloat trimW = 24;
+    _tuningMinus.frame = NSMakeRect(x, y, trimW, btnH);
+    _tuningReadout.frame = NSMakeRect(x + trimW + 3, y, w - 2 * (trimW + 3), btnH);
+    _tuningPlus.frame = NSMakeRect(x + w - trimW, y, trimW, btnH);
     y += btnH + gap;
     _snap.frame = NSMakeRect(x, y, w, btnH);
     y += btnH + gap;

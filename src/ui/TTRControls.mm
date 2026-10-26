@@ -92,6 +92,7 @@ static const CGFloat kDragThreshold = 5.0;
     TTRStrokeRounded(b, 7, border, 1.0);
 
     NSFont* font = TTRFont(12, NSFontWeightSemibold);
+    for (CGFloat size = 11; size >= 9 && TTRTextWidth(_title, font) > b.size.width - 10; size -= 1) font = TTRFont(size, NSFontWeightSemibold);  // long titles shrink instead of being cut
     const CGFloat glyphW = _kind == TTRButtonKindNormal ? 0 : 12, gap = glyphW > 0 ? 7 : 0;
     const CGFloat textW = TTRTextWidth(_title, font), groupW = MIN(b.size.width - 8, glyphW + gap + textW);
     const CGFloat x0 = floor((b.size.width - groupW) / 2.0);

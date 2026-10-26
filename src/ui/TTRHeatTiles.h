@@ -26,18 +26,20 @@ public:
     size_t tileCount() const { return tiles_.size(); }
 
 private:
-    struct Tile { CGImageRef image = nullptr; int framesUsed = -1; };
+    struct Tile { CGImageRef image = nullptr; int framesUsed = -1; double bandTop = 0.0, bandHeight = 0.0; };  // line tiles only cover the rows that have lines
     struct Key {
-        const float* data = nullptr;
+        const void* data = nullptr;  // identity of the source (heat map values or line points)
         uint64_t generation = ~0ull;
         double hopSec = 0, pxPerSec = 0, rowH = 0, scale = 0;
-        float gain = 0, range = 0, reference = 0;
+        float gain = 0, range = 0, reference = 0, tuning = 0;
+        bool fundamentals = false, hideDrums = false;
         bool operator==(const Key& o) const {
             return data == o.data && generation == o.generation && hopSec == o.hopSec && pxPerSec == o.pxPerSec && rowH == o.rowH && scale == o.scale &&
-                   gain == o.gain && range == o.range && reference == o.reference;
+                   gain == o.gain && range == o.range && reference == o.reference && tuning == o.tuning && fundamentals == o.fundamentals &&
+                   hideDrums == o.hideDrums;
         }
     };
-    CGImageRef render(const TTRHeatParams& params, long index, double spanSec, double tileWidth, double contentHeight) const;
+    CGImageRef render(const TTRHeatParams& params, long index, double spanSec, double tileWidth, double contentHeight, Tile* tile) const;
 
     std::unordered_map<long, Tile> tiles_;
     Key key_;

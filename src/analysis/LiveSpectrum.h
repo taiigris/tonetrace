@@ -19,6 +19,11 @@ public:
     // Appends every frame that the first `available` capture samples (host rate) allow.
     void advance(const float* capture, size_t available);
 
+    // The decimated mono signal the frames are computed from (stable storage; `decimatedCount` samples are valid).
+    const float* decimated() const { return decimated_.data(); }
+    size_t decimatedCount() const { return decimatedCount_; }
+    double decimatedRate() const { return decimator_ ? decimator_->outputRate() : 0.0; }
+    int maxFrames() const { return maxFrames_; }
     int frames() const { return frames_.load(std::memory_order_acquire); }
     const float* raw() const { return raw_.data(); }
     double hopSec() const { return hopSec_; }

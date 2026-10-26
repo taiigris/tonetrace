@@ -27,6 +27,7 @@ SnapshotPtr makeSnapshot(std::vector<NoteEvent> notes, const Recording& rec, uin
     s->spectrogram = rec.spectrogram;
     s->peaks = rec.peaks;
     s->audio = rec.audio;
+    s->lines = rec.lines;
     s->chroma = rec.chroma;
     s->lengthSec = rec.lengthSec;
     s->bpm = rec.bpm;
@@ -41,6 +42,13 @@ SnapshotPtr withNotes(const Snapshot& old, std::vector<NoteEvent> notes) {
     auto s = std::make_shared<Snapshot>(old);
     s->key = keyOf(notes, s->chroma);
     s->notes = std::move(notes);
+    s->version = old.version + 1;
+    return s;
+}
+
+SnapshotPtr withLines(const Snapshot& old, std::shared_ptr<const PitchLines> lines) {
+    auto s = std::make_shared<Snapshot>(old);
+    s->lines = std::move(lines);
     s->version = old.version + 1;
     return s;
 }

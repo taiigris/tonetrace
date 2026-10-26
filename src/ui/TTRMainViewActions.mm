@@ -71,6 +71,35 @@ static NSString* formatPosition(double t) {
     return [NSString stringWithFormat:@"%d:%05.2f", minutes, t - minutes * 60.0];
 }
 
+static const float kTuningStepCents = 5.0f;
+
+- (NSString*)tuningText {
+    bool reliable = false;
+    _kernel->detectedTuningCents(&reliable);
+    const double offset = _kernel->tuningOffsetCents();
+    if (!reliable && fabs(offset) < 0.5) return @"–";
+    const long rounded = lround(offset);
+    return rounded == 0 ? @"0 ct" : [NSString stringWithFormat:@"%@%ld ct", rounded < 0 ? @"\u2212" : @"+", labs(rounded)];
+}
+
+// Kernel and editor state (UiSettings) both follow the line view; the editor state survives closing the window.
+- (void)lineViewChanged:(ttr::LineView)view {
+    _kernel->setLineView(view);
+    ttr::UiSettings ui = _bridge->uiSettings();
+    const ttr::LineView stored = _kernel->lineView();
+    ui.fundamentals = stored.fundamentals;
+    ui.alignToSample = stored.alignToSample;
+    ui.tuningTrim = stored.trimCents;
+    _bridge->storeUiSettings(ui);
+    [self refreshNow];
+}
+
+- (void)nudgeTuning:(int)direction {
+    ttr::LineView view = _kernel->lineView();
+    view.trimCents = std::clamp(view.trimCents + float(direction) * kTuningStepCents, -ttr::kMaxTrimCents, ttr::kMaxTrimCents);
+    [self lineViewChanged:view];
+}
+
 - (NSArray<NSString*>*)infoLines {
     if (!_vp->hasCursor) return @[ @"Note –", @"Move over the map", @"" ];
     const int pitch = std::clamp(int(std::lround(_vp->cursorPitch)), ttr::kMinNote, ttr::kMaxNote);
@@ -91,8 +120,9 @@ static NSString* formatPosition(double t) {
     if (_hoverHelp.length > 0) return _hoverHelp;
     const int notes = snap ? int(snap->notes.size()) : 0;
     if (!snap || (!snap->hasRecording() && notes == 0)) return @"Press the red button, then play your sample in your DAW";
-    NSMutableString* s = [NSMutableString stringWithFormat:@"%d notes · %d selected · %s · Magnet %s", notes, snap ? ttr::selectedCount(snap->notes) : 0,
+    NSMutableString* s = [NSMutableString stringWithFormat:@"%d notes · %d selected · Snap %s · Magnet %s", notes, snap ? ttr::selectedCount(snap->notes) : 0,
                                                            ttr::snapName(int(_kernel->param(ttr::kParamSnap))), _kernel->param(ttr::kParamMagnet) >= 0.5f ? "on" : "off"];
+    if (snap && snap->lines && snap->lines->hasTuning() && _kernel->lineView().alignToSample) [s appendFormat:@" · Tuning %@", [self tuningText]];
     if (_kernel->previewing()) [s appendString:@" · Preview"];
     if (snap && snap->hasRecording() && !snap->audio) [s appendString:@" · notes only (recording too long to store)"];
     return s;

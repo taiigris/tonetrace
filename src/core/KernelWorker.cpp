@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 
+#include "analysis/LineBuilder.h"
 #include "analysis/QuickGrab.h"
 #include "analysis/Spectrogram.h"
 #include "core/Logger.h"
@@ -71,10 +72,12 @@ void TonetraceKernel::advanceLive() {
         generation_.fetch_add(1);
         live_.reset();
         livePeaks_.reset();
+        liveLines_.reset();
     }
     const size_t available = capture_.size();
     live_.advance(capture_.data(), available);
     livePeaks_.advance(capture_.data(), available);
+    liveLines_.advance(live_.decimated(), live_.decimatedCount());
     const double analysed = double(live_.frames()) * live_.hopSec();
     diagnostics_.setWorkerDelayMs(std::max(0.0, double(available) / sampleRate_ - analysed) * kMillisPerSecond);
 }
@@ -97,6 +100,10 @@ void TonetraceKernel::runAnalysis() {
     peaks.advance(samples, count);
     recording.peaks = peaks.finish();
     recording.audio = recording.spectrogram ? makeClip(samples, count, sampleRate_) : nullptr;
+    if (recording.spectrogram) {
+        const DecimatedSignal reduced = decimate(samples, count, sampleRate_);
+        recording.lines = computePitchLines(reduced.samples.data(), long(reduced.samples.size()), reduced.sampleRate, recording.spectrogram.get());
+    }
     if (recording.spectrogram) recording.chroma = spectrogramChroma(*recording.spectrogram);
     if (recordSeq_.load() != seq) return;
 
@@ -125,9 +132,10 @@ bool TonetraceKernel::startQuickGrab() {
     grabControl_.report(0.0f);
     const float amount = param(kParamQuickGrab);
     const FilterSettings filter = filterSettings();
-    grabThread_ = std::thread([this, base, amount, filter] {
+    const double tuning = tuningOffsetCents();
+    grabThread_ = std::thread([this, base, amount, filter, tuning] {
         const auto started = std::chrono::steady_clock::now();
-        std::vector<NoteEvent> grabbed = quickGrabNotes(*base->spectrogram, amount, filter, &grabControl_);
+        std::vector<NoteEvent> grabbed = quickGrabSnapshot(*base, amount, filter, tuning, &grabControl_);
         const bool cancelled = grabControl_.cancelled();
         const int added = cancelled ? 0 : mergeGrabbed(base, std::move(grabbed));
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -138,6 +146,33 @@ bool TonetraceKernel::startQuickGrab() {
         grabRunning_.store(false);
     });
     return true;
+}
+
+// The pitch lines of a restored recording (the state keeps the audio, not the lines): computed off the UI thread and
+// published as a new snapshot unless the document changed meanwhile. Without them the map falls back to the heat map.
+void TonetraceKernel::startLinesJob() {
+    stopLinesJob();
+    const SnapshotPtr base = snapshot();
+    if (!base || base->lines || !base->spectrogram || !base->audio || base->audio->samples.empty()) return;
+    linesControl_.cancel.store(false);
+    linesThread_ = std::thread([this, base] {
+        const auto started = std::chrono::steady_clock::now();
+        std::vector<float> samples(base->audio->samples.size());
+        for (size_t i = 0; i < samples.size(); ++i) samples[i] = float(base->audio->samples[i]) / kInt16Scale;
+        std::shared_ptr<const PitchLines> lines = computePitchLines(samples.data(), long(samples.size()), base->audio->sampleRate, base->spectrogram.get(), &linesControl_);
+        if (lines) {
+            std::lock_guard<std::mutex> guard(mutateMutex_);
+            const SnapshotPtr cur = snapshot();
+            if (cur && cur->spectrogram == base->spectrogram && !cur->lines) publishLocked(withLines(*cur, lines));
+        }
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        logInfo(instanceId_, "pitch lines of the restored recording: %s in %.0f ms", lines ? "ok" : "none", ms);
+    });
+}
+
+void TonetraceKernel::stopLinesJob() {
+    linesControl_.cancel.store(true);
+    if (linesThread_.joinable()) linesThread_.join();
 }
 
 void TonetraceKernel::cancelQuickGrab() {

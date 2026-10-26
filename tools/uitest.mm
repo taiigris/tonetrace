@@ -66,6 +66,7 @@ int main() {
         check(kernel->snapshot()->notes.empty() && !dragButton.isEnabled, "no notes yet: Drag MIDI is inactive");
 
         printf("2. Draw a note by click-dragging (Snap 1/16, Magnet on)\n");
+        kernel->setParam(kParamSnap, 3.0f);  // the default snap mode is Onset; sections 2-5 test the grid
         drag(map, [map pointForTime:1.04 pitch:70], [map pointForTime:1.55 pitch:70]);  // starts one row too high: the magnet pulls it down
         [view refreshNow];
         auto notes = kernel->snapshot()->notes;
@@ -190,9 +191,9 @@ int main() {
         [view refreshNow];
         check(!diag.hidden, "the ⓘ button opens the diagnostics panel");
         NSString* report = [diag reportText];
-        check([report containsString:@"Tonetrace 4.0.0"] && [report containsString:@"Sample rate: 44100"] && [report containsString:@"DSP load"], "the report names version, sample rate and DSP load");
+        check([report containsString:@"Tonetrace 4.1.0"] && [report containsString:@"Sample rate: 44100"] && [report containsString:@"DSP load"], "the report names version, sample rate and DSP load");
         [diag copyReport];
-        check([[NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] containsString:@"Tonetrace 4.0.0"], "Copy report puts the report on the clipboard");
+        check([[NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] containsString:@"Tonetrace 4.1.0"], "Copy report puts the report on the clipboard");
         infoB.onClick();
         check(diag.hidden, "the panel closes again");
 
@@ -223,6 +224,48 @@ int main() {
         [view refreshNow];
         check(banner.isShowing && [banner.text isEqualToString:@"Test notice"], "a kernel notice becomes a banner");
         [banner hideBanner];
+
+        printf("8. Pitch lines: hover label, ghost note, click-to-grab, onset snap\n");
+        kernel->editNotes({});
+        kernel->setParam(kParamSnap, float(kSnapOnset));
+        const double tuning = kernel->tuningOffsetCents();
+        const NSPoint onLine = [map pointForTime:2.0 midi:69.0 + tuning / 100.0 + 0.12];  // 12 cent above the line, inside its row
+        [map mouseMoved:mouse(NSEventTypeMouseMoved, map, onLine)];
+        NSString* label = map.hoverLabel;
+        int hoverCents = 99;
+        if (label) sscanf(label.UTF8String, "A4 %d ct", &hoverCents);
+        if (label && [label containsString:@"\u2212"]) hoverCents = -std::abs(hoverCents == 99 ? 0 : hoverCents);
+        check(label && [label hasPrefix:@"A4 "] && std::abs(hoverCents) <= 2, "hover over the A4 line: the label names the note and its deviation in cent (A4 0 ct)");
+        printf("     hover label: \"%s\"\n", label.UTF8String);
+        check(map.isGhostVisible && [map.ghostLabel hasPrefix:@"A4 \u00B7 "], "the ghost note is visible and labelled with note and length");
+        const NSRect ghost = map.ghostRect;
+        check(std::fabs(NSMinX(ghost) - [map pointForTime:1.0 pitch:69].x) < 4.0 && std::fabs(NSMaxX(ghost) - [map pointForTime:3.0 pitch:69].x) < 4.0,
+              "the ghost note spans the whole line segment (1.0 - 3.0 s)");
+        [map mouseMoved:mouse(NSEventTypeMouseMoved, map, [map pointForTime:0.4 pitch:60])];
+        check([map.hoverLabel isEqualToString:@"C4"] && map.isGhostVisible, "between lines the label shows the row name and the ghost note a short note on that row");
+
+        [map mouseMoved:mouse(NSEventTypeMouseMoved, map, onLine)];
+        [map mouseDown:mouse(NSEventTypeLeftMouseDown, map, onLine)];
+        [map mouseUp:mouse(NSEventTypeLeftMouseUp, map, onLine)];
+        notes = kernel->snapshot()->notes;
+        check(notes.size() == 1 && notes[0].pitch == 69, "a click on the line creates one note on row A4");
+        if (notes.size() == 1) {
+            printf("     grabbed %.3f - %.3f s (expected 1.000 - 3.000)\n", notes[0].startSec, notes[0].endSec);
+            check(std::fabs(notes[0].startSec - 1.0) <= 0.03 && std::fabs(notes[0].endSec - 3.0) <= 0.03, "the note covers the segment: start 1.00 s, end 3.00 s (+-30 ms)");
+        }
+        check(kernel->canUndo(), "click-to-grab is one undo step");
+        [map mouseDown:mouse(NSEventTypeLeftMouseDown, map, onLine, 0, 2)];
+        [map mouseUp:mouse(NSEventTypeLeftMouseUp, map, onLine, 0, 2)];
+        check(kernel->snapshot()->notes.size() == 1 && selectedCount(kernel->snapshot()->notes) == 1, "a second click on the same spot selects the note");
+        [map undoEdit];
+        kernel->editNotes({});
+
+        drag(map, [map pointForTime:1.04 pitch:80], [map pointForTime:2.46 pitch:80]);
+        notes = kernel->snapshot()->notes;
+        check(notes.size() == 1 && std::fabs(notes[0].startSec - 1.0) <= 0.015, "Onset snap: a drawn note starts on the detected onset (+-15 ms)");
+        drag(map, [map pointForTime:1.2 pitch:76], [map pointForTime:1.9 pitch:76], NSEventModifierFlagOption);
+        check(kernel->snapshot()->notes.size() == 2, "Alt draws without snap");
+        kernel->editNotes({});
 
         [view shutdown];
         kernel->deactivate();

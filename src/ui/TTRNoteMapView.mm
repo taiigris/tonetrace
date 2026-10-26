@@ -8,6 +8,7 @@
 #import "ui/TTRTheme.h"
 #import "ui/TTRViewportInput.h"
 
+static const CGFloat kNoteInsetPoints = 4.0;
 static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 117, kKeySpace = 49;
 
 @implementation TTRNoteMapView_v1
@@ -19,6 +20,7 @@ static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 
         _vp = std::move(viewport);
         _status = ttr::KernelStatus::Idle;
         _grabIndex = -1;
+        _flashTrack = -1;
         self.wantsLayer = YES;
         self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawOnSetNeedsDisplay;
     }
@@ -41,11 +43,34 @@ static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 
 
 - (NSRect)rectForNote:(const ttr::NoteEvent&)n {
     const CGFloat x0 = _vp->xForTime(n.startSec), x1 = _vp->xForTime(n.endSec);
-    return NSMakeRect(x0, _vp->yTopForPitch(n.pitch) + 1, MAX(2.0, x1 - x0), _vp->rowH - 2);
+    const CGFloat height = MAX(6.0, _vp->rowH - kNoteInsetPoints);  // narrower than the row, exactly centred on it
+    return NSMakeRect(x0, _vp->yTopForPitch(n.pitch) + (_vp->rowH - height) / 2, MAX(2.0, x1 - x0), height);
+}
+
+- (NSPoint)pointForTime:(double)seconds midi:(double)midi {
+    return NSMakePoint(_vp->xForTime(seconds), [self yForMidi:midi]);
 }
 
 - (NSPoint)pointForTime:(double)seconds pitch:(int)pitch {
     return NSMakePoint(_vp->xForTime(seconds), _vp->yTopForPitch(pitch) + _vp->rowH / 2);
+}
+
+- (const ttr::PitchLines*)lines { return _mv.lines; }
+- (double)tuningCents { return _kernel->tuningOffsetCents(); }
+- (CGFloat)yForMidi:(double)midi { return (ttr::kMaxNote + 0.5 - (midi - [self tuningCents] / 100.0)) * _vp->rowH - _vp->scrollY; }
+
+// The finished line under a view point (within kHoverSemitones of its pitch), if any.
+- (ttr::LineHit)lineAtPoint:(NSPoint)p {
+    const ttr::PitchLines* lines = [self lines];
+    if (!lines || _status != ttr::KernelStatus::Idle) return {};
+    return lines->hitAt(_vp->timeForX(p.x), _vp->pitchForY(p.y) + [self tuningCents] / 100.0, 0.6);
+}
+
+- (void)flashTrack:(int)track {
+    _flashTrack = track;
+    _flashStart = CACurrentMediaTime();
+    for (int i = 1; i <= 8; ++i)
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(i * 0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ self.needsDisplay = YES; });
 }
 
 - (int)pitchAtY:(CGFloat)y {
@@ -54,6 +79,12 @@ static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 
 
 - (NSRect)lassoRect {
     return NSMakeRect(MIN(_downPoint.x, _lassoEnd.x), MIN(_downPoint.y, _lassoEnd.y), fabs(_lassoEnd.x - _downPoint.x), fabs(_lassoEnd.y - _downPoint.y));
+}
+
+// Magnet: the row of the strongest line within one semitone of `pitch` between t0 and t1 (pitch lines; heat map energies without them).
+- (int)magnetPitch:(int)pitch from:(double)t0 to:(double)t1 {
+    if (const ttr::PitchLines* lines = [self lines]) return lines->magnetPitch(t0, t1, pitch, [self tuningCents]);
+    return ttr::magnetPitch([self magnetEnergies], _mv.frames, _mv.hopSec, t0, t1, pitch);
 }
 
 // Energies the magnet looks at: what the map shows (harmonic part with Hide drums).
@@ -91,7 +122,8 @@ static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 
 // Everything that changes the picture; the view only redraws when this string changes.
 - (NSString*)stateKey {
     const TTRViewport& v = *_vp;
-    return [NSString stringWithFormat:@"%p|%d|%d|%.4f|%.4f|%.2f|%.2f|%.0f|%.0f|%.3f|%d|%.3f|%.2f|%.2f|%d", _mv.snapshot.get(), _mv.frames, int(_status),
+    return [NSString stringWithFormat:@"%p|%d|%d|%d|%.1f|%d|%.4f|%.4f|%.2f|%.2f|%.0f|%.0f|%.3f|%d|%.3f|%.2f|%.2f|%d", _mv.snapshot.get(), _mv.frames, _mv.lineFrames, int(_status),
+            [self tuningCents], _kernel->lineView().fundamentals ? 1 : 0,
             v.scrollSec, v.pxPerSec, v.scrollY, v.rowH, self.bounds.size.width, self.bounds.size.height, _recorded, _kernel->previewing() ? 1 : 0, _playhead,
             double(_kernel->param(ttr::kParamGain)), double(_kernel->param(ttr::kParamRange)), _kernel->param(ttr::kParamHideDrums) >= 0.5f ? 1 : 0];
 }
