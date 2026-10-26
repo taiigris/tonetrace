@@ -1,1 +1,1 @@
-f0011317de1a9d91b347dce27685ac3c4bd2355b1a2895c50295ac9e05d281a1  releases/Tonetrace-4.0.0-macOS.zip
+fd3aa7f94f65dae14d947300f3cd4900d5c6bb87025a2562e63f6e9a50618685  Tonetrace-4.1.0-macOS.zip
