@@ -2,8 +2,5 @@ build/
 .DS_Store
 external/
 dist/
-image.png
-notgrabber.png
-currentstate.png
-notegrabberinstalled.png
 __pycache__/
+/*.png
