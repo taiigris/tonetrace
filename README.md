@@ -2,7 +2,7 @@
 
 **Tonetrace** is a macOS VST3 effect: record a sample, see it as a spectrogram note map, draw the notes yourself and drag them out as MIDI. It runs on Apple Silicon and Intel (universal), in Ableton Live 12, FL Studio for Mac and other VST3 hosts. Quick start: install from the ZIP (`./install.sh`), rescan plug-ins, load Tonetrace on the audio track, press Record, play the sample, draw notes, drag MIDI into a MIDI track. Everything below is in German.
 
-Tonetrace 4.4.0: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale Tonbänder, vertikale Drum-Streifen), die Noten frei als dünne Balken zeichnen und als MIDI in eine Spur ziehen, in Ableton Live auch als fertige Sampler-Spur.
+Tonetrace 4.4.1: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale Tonbänder, vertikale Drum-Streifen), die Noten frei als dünne Balken zeichnen und als MIDI in eine Spur ziehen, in Ableton Live auch als fertige Sampler-Spur.
 
 ![Tonetrace](docs/screenshot.png)
 
@@ -35,10 +35,10 @@ Tonetrace 4.4.0: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale
 
 ## Installation
 
-Aus der ZIP `Tonetrace-4.4.0-macOS.zip` (selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`, die fertige ZIP liegt auch unter `releases/`):
+Aus der ZIP `Tonetrace-4.4.1-macOS.zip` (selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`, die fertige ZIP liegt auch unter `releases/`):
 
 ```bash
-unzip Tonetrace-4.4.0-macOS.zip && cd Tonetrace-4.4.0
+unzip Tonetrace-4.4.1-macOS.zip && cd Tonetrace-4.4.1
 ./install.sh
 ```
 
@@ -169,7 +169,7 @@ cd ../..
 |---|---|
 | `./build.sh` | Build, Unit-Tests, UI-Test, Benchmark, Installation, Signierung, validator, Hosttest, Screenshots, Absturzbericht-Prüfung |
 | `./build.sh --no-install` | nur bauen, Unit-Tests, Bridge-Test und UI-Test |
-| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-4.4.0-macOS.zip` |
+| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-4.4.1-macOS.zip` |
 | `tools/make_icon.sh` | rendert Logo-PNGs, `docs/logo.png` und `assets/logo/Tonetrace.icns` neu (sind eingecheckt) |
 
 Die Version steht nur in `VERSION`, der Build-Hash (git) im About-Overlay und im Diagnosepanel.
@@ -217,6 +217,11 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Im Spectrum sind Töne unter ca. 125 Hz durch das lange Fenster zeitlich verschmiert (wie ein Bassanschlag in jedem Spektrogramm).
 
 ## Changelog
+
+### 4.4.1 – Oktavnoten mit eigenen Anschlägen
+
+- **Erkennung:** Ein Kandidat im Oberton-Abstand (Oktave, Quinte darüber usw.) zu einem stärkeren tieferen Ton wird nicht mehr automatisch als Oberton verworfen: setzt er nicht gemeinsam mit diesem ein und aus (Onset und Ende beide innerhalb von 60 ms), bleibt er eine eigene Note (Quick Grab, zweiter Durchlauf mit exakter Oberton-Subtraktion). Im Referenz-Track steigt die F2-Überdeckung von ca. 24 auf 36 %, das Ziel 70 % bleibt verfehlt. Gates, Rauschen und alte Mixes unverändert (F1 weiter >= 4.3 in allen Zeilen). Details in `docs/ACCURACY.md`.
+- **Tests:** 115 Unit-Tests (neu: Oktavnote mit eigenen Anschlägen neben gehaltenem Bass).
 
 ### 4.4.0 – Halte-Erkennung, Breitformat-Oberfläche
 

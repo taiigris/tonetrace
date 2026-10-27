@@ -128,3 +128,29 @@ TEST(parameter_ids_stay_stable_for_saved_projects) {
     CHECK(kParamMagnet == 6 && kParamQuickGrab == 7 && kParamSoundVolume == 8 && kParamMix == 9 && kParamSolo == 10);
     CHECK(kParamPreview == 11 && kParamBypass == 12 && kNumParams == 13);
 }
+
+TEST(octave_note_with_its_own_onsets_stays_a_note_beside_a_held_bass) {
+    const double length = 5.0;
+    const std::vector<tsig::HzTone> bass = {{tsig::midiToHz(29), 0.2, 4.6, 0.30f, true, 0.0, 5.0, 0.0}};  // saw: its 2nd partial is the octave
+    std::vector<float> sig = tsig::synthHz(bass, kRate, length);
+    const std::vector<float> octave = tsig::synthHz({{tsig::midiToHz(41), 1.0, 2.0, 0.30f}, {tsig::midiToHz(41), 2.4, 3.6, 0.30f}}, kRate, length);
+    std::vector<float> plain = sig;
+    for (size_t i = 0; i < sig.size(); ++i) sig[i] += octave[i];
+    auto grab = [&](const std::vector<float>& audio) {
+        const std::shared_ptr<Spectrogram> spec = computeSpectrogram(audio.data(), audio.size(), kRate);
+        Snapshot snap;
+        snap.spectrogram = spec;
+        snap.bpm = 120.0;
+        return quickGrabSnapshot(snap, 1.0f, FilterSettings{}, 0.0);
+    };
+    auto covered = [](const std::vector<NoteEvent>& notes, int pitch, double a, double b) {
+        double sum = 0.0;
+        for (const NoteEvent& n : notes) sum += n.pitch == pitch ? tmetric::overlap(n.startSec, n.endSec, a, b) : 0.0;
+        return sum;
+    };
+    const std::vector<NoteEvent> both = grab(sig), alone = grab(plain);
+    CHECK_MSG(covered(both, 41, 1.0, 2.0) + covered(both, 41, 2.4, 3.6) >= 0.7 * 2.2, "octave covered %.2f s", covered(both, 41, 1.0, 2.0) + covered(both, 41, 2.4, 3.6));
+    CHECK_MSG(covered(both, 41, 2.0, 2.4) < 0.2, "the gap of the octave note is kept (%.2f s)", covered(both, 41, 2.0, 2.4));
+    CHECK_MSG(covered(alone, 41, 0.0, 5.0) < 0.5, "the bass alone gets no octave note (%.2f s)", covered(alone, 41, 0.0, 5.0));
+    CHECK(covered(both, 29, 0.5, 4.5) > 3.0);
+}

@@ -1,4 +1,4 @@
-# Tonetrace 4.4.0 - Erkennungsgenauigkeit
+# Tonetrace 4.4.1 - Erkennungsgenauigkeit (4.4.0-Messung darunter, Abschnitt "4.4.1 gegen 4.4.0" zuerst)
 
 Quick Grab arbeitet in 4.4 mit der neuen **Halte-Erkennung** (`src/analysis/SustainGrab.cpp`) statt mit der Segmentierung aus 4.3, die gehaltene Töne an jedem
 Drum-Schlag und jedem Sidechain-Dip zerschnitt. Dieses Dokument misst 4.4 gegen 4.3 auf synthetischen Mixes mit Ground Truth und an einem echten Track
@@ -92,6 +92,57 @@ machten das Note-F1 schlechter und sind nicht enthalten.
 
 **Ergebnis:** In allen 27 Zeilen ist F1(4.4) >= F1(4.3). Deutlich besser sind melody, vibrato, detune, noise, bass und drums+melody (Wiederholungen derselben Note werden getrennt,
 Drums und Rauschen erzeugen weniger Fehlnoten). Reines weißes Rauschen (Kurztest, 44,1 kHz): 4.4 liefert 2 / 9 / 29 Noten bei 0,3 / 1 / 2,5 s, 4.3 liefert 5 / 11 / 33 bis 41.
+
+## 4.4.1 gegen 4.4.0
+
+**Änderung:** Ein zweiter Durchlauf der Halte-Erkennung mit exakter Oberton-Subtraktion (ohne die +40-%-Toleranz) liefert Kandidaten, die der tolerante Durchlauf als Oberton eines stärkeren,
+tieferen Tons verworfen hat. Ein solcher Kandidat (mindestens 0,25 s, im Abstand 12 / 19 / 24 / 28 / 31 Halbtöne über dem tieferen Ton) bleibt als eigene Note, wenn er nicht gemeinsam mit diesem
+ein- **und** aussetzt (Onset und Ende beide innerhalb von 60 ms); bleibt er mit ihm deckungsgleich, ist er ein Oberton. Test: `octave_note_with_its_own_onsets_stays_a_note_beside_a_held_bass`.
+**Nicht gelungen:** die Geister- und Rausch-Gates auf ganz kurze Schnipsel (< 150 ms) zu begrenzen. Mit gelockerten Gates (Prominenz 1,1 statt 1,5 und Geister-Verhältnis 25 statt 14 dB für Stücke ab 150 ms) kamen A#1 und C3 im Referenz-Fenster 38,62 s teilweise zurück, aber das Rauschen stieg von 2 / 9 / 29 auf 5 / 20 / 57 Noten und die
+Dauer-F1 der Techno-Mixes fiel um 0,01 bis 0,04 (bei Prominenz 1,3: Rauschen 3 / 14 / 44 und F1 im full mix 50 % unter 4.3). Die Gates bleiben deshalb wie in 4.4.0.
+
+Techno-Mixes bei 100 % (Ziele Fragmentierung <= 1,2 und Dauer-F1 >= 0,85):
+
+| Mix | Fragm. 4.4.0 | Fragm. 4.4.1 | Dauer-F1 4.4.0 | Dauer-F1 4.4.1 | Note-F1 4.4.0 | Note-F1 4.4.1 | Ziele |
+|---|---|---|---|---|---|---|---|
+| techno-125 (100 %) | 1.04 | 1.04 | 0.814 | 0.808 | 0.581 | 0.576 | Fragm. erreicht, Dauer-F1 verfehlt |
+| techno-128 (100 %) | 1.18 | 1.18 | 0.854 | 0.849 | 0.575 | 0.571 | Fragm. erreicht, Dauer-F1 verfehlt |
+| techno-130 (100 %) | 1.13 | 1.13 | 0.739 | 0.734 | 0.444 | 0.441 | Fragm. erreicht, Dauer-F1 verfehlt |
+| techno-135 (100 %) | 1.11 | 1.11 | 0.861 | 0.856 | 0.593 | 0.589 | beide erreicht |
+
+Alte Mixes: F1(4.4.1) >= F1(4.3) in allen 27 Zeilen (ja). Weißes Rauschen (0,3 / 1 / 2,5 s): 2 / 9 / 29 Noten wie in 4.4.0 (4.3: 5 / 11 / 33 bis 41).
+
+Referenz-Track, Fenster 156,83 s (beste Übereinstimmung 0.40, 134 BPM), 4.4.0 gegen 4.4.1:
+
+| Referenzzeile | 4.4.0 gefunden / Überdeckung / Stücke | 4.4.1 gefunden / Überdeckung / Stücke |
+|---|---|---|
+| F1 | ja / 89 % / 1 | ja / 89 % / 1 |
+| F2 | nein / 24 % / 4 | nein / 36 % / 5 |
+| C2 | nein / 13 % / 2 | nein / 13 % / 2 |
+| A#1 | nein / 0 % / 0 | nein / 0 % / 0 |
+| B1 | nein / 0 % / 0 | nein / 0 % / 0 |
+| C3 | nein / 0 % / 0 | nein / 0 % / 0 |
+| F3 | ja / 66 % / 3 | ja / 66 % / 3 |
+| G3/G#3 | nein / 43 % / 3 | nein / 43 % / 3 |
+| False Positives | 11 | 11 |
+
+Zweites Fenster 160,41 s (Übereinstimmung 0,40):
+
+| Referenzzeile | 4.4.0 gefunden / Überdeckung / Stücke | 4.4.1 gefunden / Überdeckung / Stücke |
+|---|---|---|
+| F1 | ja / 98 % / 1 | ja / 98 % / 1 |
+| F2 | nein / 22 % / 5 | nein / 35 % / 7 |
+| C2 | nein / 6 % / 1 | nein / 6 % / 1 |
+| A#1 | nein / 0 % / 0 | nein / 0 % / 0 |
+| B1 | nein / 0 % / 0 | nein / 0 % / 0 |
+| C3 | nein / 0 % / 0 | nein / 0 % / 0 |
+| F3 | ja / 74 % / 3 | ja / 74 % / 3 |
+| G3/G#3 | nein / 19 % / 4 | nein / 19 % / 4 |
+| False Positives | 7 | 7 |
+
+**Ziele:** F1-Bass >= 80 % in <= 2 Stücken bleibt **erreicht** (89 % / 98 % in je 1 Stück). F2 >= 70 %: **verfehlt** (36 % bzw. 35 %, vorher 24 % / 22 %): zwischen den Lücken liegt F2 unterhalb von
+F1 nur als Oberton im Pegel (der Rest der F2-Zeile ist von F1s 2. Teilton nicht zu trennen, wenn F2 dort ohne eigene Anschläge und Enden läuft). Mindestens 6 von 8 Zeilen: **verfehlt** (2 von 8).
+False Positives: 11 (Grenze: die 47 aus dem ersten 4.4-Durchgang, eingehalten). A#1, B1 und C3 fehlen weiter (siehe oben: die Gates).
 
 ## Referenz-Track (nur gelesen)
 

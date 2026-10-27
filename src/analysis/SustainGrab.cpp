@@ -33,6 +33,8 @@ constexpr double kKickTailDecay = 0.8;
 constexpr int kProminenceNear = 3, kProminenceFar = 8;  // the notes 3 to 8 semitones around a pitch ...
 constexpr double kMinProminence = 1.5;       // ... must be at least 4 dB below it, or the band is noise
 constexpr double kNoiseGateMaxSec = 1.0;
+constexpr double kRescueMinSec = 0.25;       // an overtone is only rescued as a note of this length
+constexpr double kTogetherSec = 0.06;        // onset and ending this close to the lower note's: one sound with its overtone
 constexpr int kSmoothFrames = 5;
 constexpr int kHeldFrames = 9;              // ~0.2 s: a band reference needs a level that is held this long
 constexpr double kShortBridgeSec = 0.04;     // ordinary gap between two pieces of one pitch
@@ -181,6 +183,9 @@ bool isWeakBlip(const std::vector<float>& v, const Run& r, float toGlobal, doubl
     return db < (length < kShortNoteSec ? kWeakShortDb : kWeakMediumDb);
 }
 
+// The partials 2..6 of a note: 12, 19, 24, 28, 31 semitones above it.
+bool isPartialOf(int semitonesAbove) { return semitonesAbove == 12 || semitonesAbove == 19 || semitonesAbove == 24 || semitonesAbove == 28 || semitonesAbove == 31; }
+
 // A pitch difference within a fifth, or that of the 2nd / 3rd / 4th / 5th partial: m is then leakage or a sub-harmonic of n.
 bool isNeighbourOrSubharmonic(int semitonesAbove) {
     const int d = std::abs(semitonesAbove);
@@ -209,7 +214,10 @@ std::vector<NoteEvent> dropGhosts(const std::vector<NoteEvent>& notes) {
 
 double minNoteSecForTempo(double bpm) { return bpm >= 40.0 && bpm <= 300.0 ? 15.0 / bpm : kFallbackMinSec; }
 
-std::vector<NoteEvent> sustainGrabNotes(const Spectrogram& spec, const std::vector<float>& low, float amount, const GrabTempo& tempo, TaskControl* control) {
+namespace {
+
+// One pass of the segmentation with the given overtone handling; the notes carry their level in `strength`.
+std::vector<NoteEvent> grabPass(const Spectrogram& spec, const std::vector<float>& low, float amount, const GrabTempo& tempo, TaskControl* control, const PickOptions& pickOptions) {
     std::vector<NoteEvent> notes;
     if (spec.frames == 0) return notes;
     const std::vector<float> harmonicSupport = mixedEnergies(spec, low);  // sharp edges: new attacks are looked for here
@@ -217,7 +225,7 @@ std::vector<NoteEvent> sustainGrabNotes(const Spectrogram& spec, const std::vect
     medianInPlace(bridgeSupport, spec.frames);
     std::vector<float> support = harmonicSupport;
     medianInPlace(support, spec.frames);
-    std::vector<float> s = pickFundamentals(support, spec.frames, control, {kSubtractGain, kExplainFactor});
+    std::vector<float> s = pickFundamentals(support, spec.frames, control, pickOptions);
     if (s.empty() || (control && control->cancelled())) return notes;
     removeLeakage(s, support, spec.frames);
     const std::vector<float> sharp = s;  // picks before the smoothing: valleys and attacks of one pitch
@@ -274,6 +282,38 @@ std::vector<NoteEvent> sustainGrabNotes(const Spectrogram& spec, const std::vect
             notes.push_back(seg.note);
         }
     }
+    return notes;
+}
+
+// Notes of the exact-subtraction pass that the tolerant pass explained away as overtones of a stronger lower note: they stay when they
+// have onsets or endings of their own (not both within kTogetherSec of that note's), as an octave note with a gap of its own does.
+std::vector<NoteEvent> rescuedOvertones(const std::vector<NoteEvent>& tolerant, const std::vector<NoteEvent>& exact) {
+    std::vector<NoteEvent> rescued;
+    for (const NoteEvent& m : exact) {
+        const bool isKnown = std::any_of(tolerant.begin(), tolerant.end(), [&](const NoteEvent& a) {
+            return a.pitch == m.pitch && std::min(a.endSec, m.endSec) - std::max(a.startSec, m.startSec) > 0.5 * (m.endSec - m.startSec);
+        });
+        if (isKnown || m.endSec - m.startSec < kRescueMinSec) continue;
+        bool isOvertone = false, isTogether = false;
+        for (const NoteEvent& n : tolerant) {
+            if (!isPartialOf(m.pitch - n.pitch) || n.strength < m.strength || std::min(n.endSec, m.endSec) - std::max(n.startSec, m.startSec) <= 0.0) continue;
+            isOvertone = true;
+            isTogether = isTogether || (std::fabs(n.startSec - m.startSec) <= kTogetherSec && std::fabs(n.endSec - m.endSec) <= kTogetherSec);
+        }
+        if (isOvertone && !isTogether) rescued.push_back(m);
+    }
+    return rescued;
+}
+
+}  // namespace
+
+std::vector<NoteEvent> sustainGrabNotes(const Spectrogram& spec, const std::vector<float>& low, float amount, const GrabTempo& tempo, TaskControl* control) {
+    if (spec.frames == 0) return {};
+    std::vector<NoteEvent> notes = grabPass(spec, low, amount, tempo, control, {kSubtractGain, kExplainFactor});
+    if (control && control->cancelled()) return {};
+    const std::vector<NoteEvent> exact = dropGhosts(grabPass(spec, low, amount, tempo, control, {kSubtractGain, 0.0f}));
+    const std::vector<NoteEvent> rescued = rescuedOvertones(notes, exact);
+    notes.insert(notes.end(), rescued.begin(), rescued.end());
     notes = dropGhosts(notes);
     std::sort(notes.begin(), notes.end(), [](const NoteEvent& a, const NoteEvent& b) { return a.startSec != b.startSec ? a.startSec < b.startSec : a.pitch < b.pitch; });
     if (control) control->report(1.0f);
