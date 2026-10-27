@@ -38,7 +38,7 @@ add_library(tonetrace_core STATIC
   src/analysis/LineBuilder.cpp src/analysis/LiveLines.cpp
   src/render/GlowProfile.cpp
   src/midi/MidiFileWriter.cpp src/midi/ExportPlanner.cpp
-  src/preview/PreviewSynth.cpp
+  src/preview/PreviewSynth.cpp src/bridge/BridgeClient.cpp
   src/state/StateCodec.cpp src/state/UiSettings.cpp src/core/Logger.cpp src/core/Diagnostics.cpp
   src/core/NoteEdit.cpp src/core/Snapshot.cpp
   src/core/TonetraceKernel.cpp src/core/KernelModel.cpp src/core/KernelWorker.cpp src/core/KernelAudio.cpp)

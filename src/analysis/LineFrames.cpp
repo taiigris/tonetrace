@@ -25,6 +25,7 @@ constexpr double kHarmonicToleranceSemis = 0.30;
 constexpr int kMaxCandidates = 400, kRankedCandidates = 96;
 constexpr int kMaxFundamentals = 16;  // the rest of the slots goes to overtones
 constexpr float kTiny = 1.0e-12f;
+constexpr double kBlendRatio = 1.1225;  // 2 semitones: the fine spectrum crossfades the bands over +-1 semitone around their borders
 
 double harmonicSemis(int h) { return 12.0 * std::log2(double(h)); }
 
@@ -41,6 +42,8 @@ LineFrameAnalyzer::LineFrameAnalyzer(double rate) {
         b.hiHz = std::min(spec.hiHz, rate * 0.5);
         b.firstBin = std::max(2, int(std::floor(b.loHz / b.binHz)) - 2);
         b.lastBin = std::min(b.n / 2 - 2, int(std::ceil(b.hiHz / b.binHz)) + 2);
+        b.magFirst = std::max(2, int(std::floor(b.loHz / kBlendRatio / b.binHz)) - 2);
+        b.magLast = std::min(b.n / 2 - 2, int(std::ceil(b.hiHz * kBlendRatio / b.binHz)) + 2);
         b.scale = 4.0f / float(b.n);  // periodic Hann: |X| = A * N / 4
         b.window.resize(size_t(b.n));
         for (int i = 0; i < b.n; ++i) b.window[size_t(i)] = float(0.5 - 0.5 * std::cos(2.0 * M_PI * i / b.n));
@@ -64,12 +67,13 @@ void LineFrameAnalyzer::collect(Band& b, const float* samples, long count, int f
         any = any || s != 0.0f;
         b.frame[size_t(i)] = s * b.window[size_t(i)];
     }
+    b.isValid = any;
     if (!any) return;
     b.fft->forward(b.frame.data(), b.re.data(), b.im.data());
     scratch_.clear();
-    for (int k = b.firstBin - 1; k <= b.lastBin + 1; ++k) {
+    for (int k = b.magFirst - 1; k <= b.magLast + 1; ++k) {
         b.mag[size_t(k)] = std::sqrt(b.re[size_t(k)] * b.re[size_t(k)] + b.im[size_t(k)] * b.im[size_t(k)]) * b.scale;
-        scratch_.push_back(b.mag[size_t(k)]);
+        if (k >= b.firstBin - 1 && k <= b.lastBin + 1) scratch_.push_back(b.mag[size_t(k)]);
     }
     const size_t mid = scratch_.size() / 2;
     std::nth_element(scratch_.begin(), scratch_.begin() + ptrdiff_t(mid), scratch_.end());
@@ -102,6 +106,57 @@ void LineFrameAnalyzer::collect(Band& b, const float* samples, long count, int f
         }
         if (leak) cands_.erase(cands_.begin() + ptrdiff_t(i));
         else ++i;
+    }
+}
+
+namespace {
+
+constexpr float kFineMinAmplitude = 1.0e-6f;
+
+uint8_t fineCode(float amplitude) {
+    const float db = 20.0f * std::log10(std::max(amplitude, kFineMinAmplitude));
+    return uint8_t(std::lround(std::clamp(1.0f + db / kFineFloorDb, 0.0f, 1.0f) * 255.0f));
+}
+
+}  // namespace
+
+float LineFrameAnalyzer::fineLevel(const Band& b, double hz) const {
+    constexpr double kHalfBinOctaves = 1.0 / (24.0 * kFineBinsPerNote);  // a fine bin spans +-half of 1/kFineBinsPerNote semitone
+    if (!b.isValid) return 0.0f;
+    const double pos = hz / b.binHz, width = hz * (std::pow(2.0, kHalfBinOctaves) - std::pow(2.0, -kHalfBinOctaves)) / b.binHz;
+    const int lo = b.magFirst - 1, hi = b.magLast + 1;
+    if (width <= 1.0) {  // finer than the FFT: interpolate between its bins
+        const int i0 = std::clamp(int(std::floor(pos)), lo, hi - 1);
+        const float w = float(std::clamp(pos - i0, 0.0, 1.0));
+        return b.mag[size_t(i0)] * (1.0f - w) + b.mag[size_t(i0 + 1)] * w;
+    }
+    const int i0 = std::clamp(int(std::ceil(pos - width / 2)), lo, hi), i1 = std::clamp(int(std::floor(pos + width / 2)), i0, hi);
+    float level = 0.0f;
+    for (int i = i0; i <= i1; ++i) level = std::max(level, b.mag[size_t(i)]);
+    return level;
+}
+
+void LineFrameAnalyzer::fineRow(uint8_t* out) const {
+    const size_t bandCount = bands_.size();
+    size_t k = 0;
+    for (int j = 0; j < kFineBins; ++j) {
+        const double midi = kMinNote - 0.5 + (j + 0.5) / kFineBinsPerNote;
+        const double hz = 440.0 * std::pow(2.0, (midi - 69.0) / 12.0);
+        while (k + 1 < bandCount && hz >= bands_[k].hiHz) ++k;
+        const Band& b = bands_[k];
+        if (hz < b.loHz || hz >= b.hiHz) { out[j] = 0; continue; }
+        float level = fineLevel(b, hz);
+        // near a border the two windows are blended, so the picture has no step where the window length changes
+        const Band* other = nullptr;
+        double border = 0.0;
+        if (k > 0 && hz < b.loHz * kBlendRatio) { other = &bands_[k - 1]; border = b.loHz; }
+        else if (k + 1 < bandCount && hz >= b.hiHz / kBlendRatio) { other = &bands_[k + 1]; border = b.hiHz; }
+        if (other) {
+            const double t = std::clamp((12.0 * std::log2(hz / border) + 1.0) / 2.0, 0.0, 1.0);  // 0 below the border, 1 above
+            const double s = t * t * (3.0 - 2.0 * t), upper = other->loHz > b.loHz ? 1.0 - s : s;  // weight of band b
+            level = float(double(level) * upper + double(fineLevel(*other, hz)) * (1.0 - upper));
+        }
+        out[j] = fineCode(level);
     }
 }
 

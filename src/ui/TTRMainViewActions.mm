@@ -86,10 +86,7 @@ static const float kTuningStepCents = 5.0f;
 - (void)lineViewChanged:(ttr::LineView)view {
     _kernel->setLineView(view);
     ttr::UiSettings ui = _bridge->uiSettings();
-    const ttr::LineView stored = _kernel->lineView();
-    ui.fundamentals = stored.fundamentals;
-    ui.alignToSample = stored.alignToSample;
-    ui.tuningTrim = stored.trimCents;
+    ttr::storeLineView(_kernel->lineView(), &ui);
     _bridge->storeUiSettings(ui);
     [self refreshNow];
 }

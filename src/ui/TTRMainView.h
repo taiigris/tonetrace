@@ -6,8 +6,8 @@
 
 #include "ui/TTRHostBridge.h"
 
-extern const NSSize kTTRDefaultSize;  // 1100 x 640
-extern const NSSize kTTRMinimumSize;  // 820 x 520
+extern const NSSize kTTRDefaultSize;  // 1100 x 800
+extern const NSSize kTTRMinimumSize;  // 820 x 650
 
 @interface TTRMainView_v1 : NSView
 - (instancetype)initWithBridge:(std::shared_ptr<ttr::TTRHostBridge>)bridge;

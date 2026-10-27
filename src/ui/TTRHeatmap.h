@@ -6,6 +6,11 @@
 
 struct TTRHeatParams {
     // Thin-line mode (when linePoints is set): the pitch lines are drawn on a piano-roll grid instead of the heat map.
+    // Spectrum mode (when `fine` is set): the whole spectrum on the fine pitch grid, drawn as a heat map (see TTRFineRender.mm).
+    // `linePoints` / `lineCounts` then only mark the overtones that "Fundamentals" dims, `data` / `harmonic` the drums that "Hide drums" dims.
+    const uint8_t* fine = nullptr;               // frames * kFineBins
+    const float* harmonic = nullptr;             // frames * kNumNotes harmonic part of `data`; may be null
+    int harmonicFrames = 0;
     const ttr::LinePoint* linePoints = nullptr;  // frames * kLineSlots
     const uint8_t* lineCounts = nullptr;
     bool isLive = false;          // the lines still grow: hide the first points of a line (it may turn out to be noise)
@@ -24,6 +29,13 @@ struct TTRHeatParams {
 
 // Display brightness 0..1 of an energy: `range` is the dynamic range, `gain` shifts it. Exposed for tests/legend use.
 float TTRHeatShade(float energy, float reference, float gain, float range);
+
+// The colour ramp (shade 0..255 -> 0xAARRGGBB) and a darker version of a colour; shared by the heat map renderers.
+uint32_t TTRHeatColor(uint8_t shade);
+uint32_t TTRDarkenColor(uint32_t color, float keep);
+
+// Spectrum mode: the full spectrogram of the fine grid. Returns an owned image (caller releases) or NULL.
+CGImageRef TTRRenderFine(const TTRHeatParams& params);
 
 // Returns an owned image (caller releases) or NULL without data.
 CGImageRef TTRRenderHeatmap(const TTRHeatParams& params);

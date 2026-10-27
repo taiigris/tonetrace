@@ -25,7 +25,7 @@ std::vector<uint8_t> editorStateV1() {  // byte for byte what Tonetrace 4.0 wrot
     put(int32_t(2));                                    // snap 1/8
     put(uint8_t(0)); put(uint8_t(1)); put(uint8_t(1));  // hide drums off, magnet on, sync on
     put(3.5); put(120.0);                               // scroll
-    put(int32_t(1000)); put(int32_t(600));
+    put(int32_t(1000)); put(int32_t(700));
     std::vector<uint8_t> out;
     auto putOut = [&](uint32_t v) { const auto* p = reinterpret_cast<const uint8_t*>(&v); out.insert(out.end(), p, p + 4); };
     putOut(0x31555454u); putOut(1u); putOut(uint32_t(body.size())); putOut(crc32(body.data(), body.size()));
@@ -80,9 +80,10 @@ TEST(ui_settings_of_version_4_0_still_decode_with_new_defaults) {
     UiSettings s;
     std::string reason;
     CHECK_MSG(decodeUiSettings(v1.data(), v1.size(), &s, &reason), "%s", reason.c_str());
-    CHECK(s.snap == 2 && s.speed == 2.0f && !s.hideDrums && s.syncToHost && s.width == 1000 && s.height == 600);
-    CHECK(s.fundamentals && s.alignToSample && s.tuningTrim == 0.0f);
-    s.fundamentals = false;
+    CHECK(s.snap == 2 && s.speed == 2.0f && !s.hideDrums && s.syncToHost && s.width == 1000 && s.height == 700);
+    CHECK(!s.fundamentals && s.alignToSample && s.tuningTrim == 0.0f);
+    CHECK(s.isSpectrum && !s.grabOnClick && !s.samplerOnDrag);  // the 4.3 fields take their defaults
+    s.fundamentals = true;
     s.tuningTrim = -12.5f;
     const std::vector<uint8_t> v2 = encodeUiSettings(s);
     UiSettings back;

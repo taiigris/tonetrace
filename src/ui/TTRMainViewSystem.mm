@@ -3,7 +3,7 @@
 #import "ui/TTRMainViewInternal.h"
 #import "ui/TTRTheme.h"
 
-static const CGFloat kStatusButtonH = 20, kStatusButtonGap = 4, kBannerHeight = 28, kBannerInset = 8;
+static const CGFloat kStatusButtonH = 20, kStatusButtonGap = 4, kBannerHeight = 40, kBannerInset = 8;
 static const double kViewportEpsilon = 0.5, kFpsWindowSeconds = 1.0;
 
 @implementation TTRMainView_v1 (System)
@@ -92,7 +92,7 @@ static const double kViewportEpsilon = 0.5, kFpsWindowSeconds = 1.0;
     const ttr::UiSettings ui = _bridge->uiSettings();
     _vp->scrollSec = ui.scrollSec;
     if (ui.scrollY >= 0.0) _vp->scrollY = ui.scrollY;
-    _kernel->setLineView({ui.fundamentals, ui.alignToSample, ui.tuningTrim});
+    _kernel->setLineView(ttr::lineViewOf(ui));
     _showWave = ui.showWave;
     _waveButton.isOn = ui.showWave;
     [self layoutControls];

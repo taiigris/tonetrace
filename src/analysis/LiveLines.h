@@ -21,14 +21,16 @@ public:
     int frames() const { return frames_.load(std::memory_order_acquire); }
     const LinePoint* points() const { return points_.data(); }
     const uint8_t* counts() const { return counts_.data(); }
+    const uint8_t* fine() const { return fine_.data(); }  // frames * kFineBins
     float peak() const { return peak_.load(std::memory_order_relaxed); }
     std::shared_ptr<const void> hold() const { return points_.share(); }
+    std::shared_ptr<const void> holdFine() const { return fine_.share(); }
 
 private:
     std::unique_ptr<LineFrameAnalyzer> analyzer_;
     LineTracker tracker_;
     LazyArray<LinePoint> points_;
-    LazyArray<uint8_t> counts_;
+    LazyArray<uint8_t> counts_, fine_;
     int maxFrames_ = 0;
     std::atomic<int> frames_{0};
     std::atomic<float> peak_{0.0f};

@@ -21,6 +21,7 @@
 #include "core/Types.h"
 #include "preview/NoteTable.h"
 #include "preview/PreviewSynth.h"
+#include "state/UiSettings.h"
 
 namespace ttr {
 
@@ -46,16 +47,34 @@ struct MapView {
     int lineFrames = 0;
     float linePeak = 0.0f;
     std::shared_ptr<const void> lineHold;
+    const uint8_t* fine = nullptr;          // lineFrames * kFineBins: the whole spectrum on the fine pitch grid (null when not available)
+    std::shared_ptr<const void> fineHold;   // keeps the live fine buffer alive while a frame is drawn
     const PitchLines* lines = nullptr;      // finished lines (same object as snapshot->lines)
 };
 
 // View settings of the thin-line map that live in the editor state (UiSettings), not in the host parameters.
 struct LineView {
-    bool fundamentals = true;     // dim overtones
+    bool fundamentals = false;    // dim overtones
     bool alignToSample = true;    // shift the semitone grid by the detected tuning
     float trimCents = 0.0f;       // manual correction, -50..+50
+    bool isSpectrum = true;       // View: the full spectrogram (default) instead of the thin lines
+    bool grabOnClick = false;     // a click exactly on a strong line grabs it as a note
+    bool samplerOnDrag = false;   // a successful Drag MIDI also asks the Live bridge for a sampler track
 };
 constexpr float kMaxTrimCents = 50.0f;
+
+// The editor state (UiSettings) and the kernel's line view carry the same settings.
+inline LineView lineViewOf(const UiSettings& s) {
+    return {s.fundamentals, s.alignToSample, s.tuningTrim, s.isSpectrum, s.grabOnClick, s.samplerOnDrag};
+}
+inline void storeLineView(const LineView& v, UiSettings* s) {
+    s->fundamentals = v.fundamentals;
+    s->alignToSample = v.alignToSample;
+    s->tuningTrim = v.trimCents;
+    s->isSpectrum = v.isSpectrum;
+    s->grabOnClick = v.grabOnClick;
+    s->samplerOnDrag = v.samplerOnDrag;
+}
 
 class TonetraceKernel {
 public:
@@ -188,7 +207,7 @@ private:
     LiveSpectrum live_;
     PeakBuilder livePeaks_;
     LiveLines liveLines_;
-    std::atomic<bool> lineAlign_{true}, lineFundamentals_{true};
+    std::atomic<bool> lineAlign_{true}, lineFundamentals_{false}, lineSpectrum_{true}, lineGrabOnClick_{false}, lineSamplerOnDrag_{false};
     std::atomic<float> lineTrim_{0.0f};
     std::thread linesThread_;
     TaskControl linesControl_;

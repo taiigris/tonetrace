@@ -27,6 +27,20 @@ double snapTime(double sec, const TimeGrid& g) {
     return (std::round(beat / step) * step - g.startPpq) / g.beatsPerSec();
 }
 
+double snapTimeToGrid(double sec, const TimeGrid& g) {
+    if (g.snapMode == kSnapOnset) return sec;
+    return snapTime(sec, g);
+}
+
+SnapPlan snapPlanFor(const TimeGrid& grid, bool altDown) {
+    SnapPlan plan{grid, grid.snapMode != 0};
+    if (!altDown) return plan;
+    if (plan.snap) { plan.snap = false; return plan; }
+    plan.grid.snapMode = kSnapGrid16;
+    plan.snap = true;
+    return plan;
+}
+
 double minNoteSec(const TimeGrid& g) {
     const double step = gridStepSec(g);
     return step > 0.0 ? step : kMinFreeNoteSec;

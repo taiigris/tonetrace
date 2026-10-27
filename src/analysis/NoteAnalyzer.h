@@ -9,6 +9,8 @@
 
 namespace ttr {
 
+constexpr double kMinNoteSec = 0.060;  // shortest segment extractSegments keeps by default
+
 // Threshold (dB relative to the loudest detected partial) for a sensitivity in 0..1.
 float sensitivityToThresholdDb(float sensitivity);
 
@@ -26,7 +28,7 @@ std::shared_ptr<Salience> computeSalience(const Spectrogram& spectrogram, const 
 // Notes from the strongest lines of the salience (Quick Grab). With filter.hideDrums the segment filter
 // (tonality / sustain / glide) drops drum hits.
 std::vector<NoteEvent> extractNotes(const Salience& salience, float sensitivity, const Spectrogram& spectrogram,
-                                    const FilterSettings& filter);
-std::vector<NoteSegment> extractSegments(const Salience& salience, float sensitivity);
+                                    const FilterSettings& filter, double minNoteSec = kMinNoteSec);
+std::vector<NoteSegment> extractSegments(const Salience& salience, float sensitivity, double minNoteSec = kMinNoteSec);
 
 }  // namespace ttr

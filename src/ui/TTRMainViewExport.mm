@@ -2,6 +2,7 @@
 #import <Foundation/Foundation.h>
 
 #import "analysis/KeyEstimator.h"
+#import "bridge/BridgeClient.h"
 #import "core/Logger.h"
 #import "midi/ExportPlanner.h"
 #import "ui/TTRMainViewInternal.h"
@@ -54,6 +55,10 @@ static NSString* midiNameForSnapshot(const ttr::Snapshot& snap) {
     ttr::logInfo(_kernel->instanceId(), "MIDI export: %s", url.path.UTF8String);
     const int count = int(ttr::notesForExport(snap->notes).size());
     [self showMessage:[NSString stringWithFormat:@"%d notes written to ~/Music/Tonetrace/%@ – drop on a MIDI track", count, url.lastPathComponent]];
+    if (_kernel->lineView().samplerOnDrag) {  // optional: the same notes as a sampler track in Live
+        if (ttr::bridgeConnected(ttr::bridgeDirectory())) [self sendSamplerRequest];
+        else [self showMessage:@"MIDI written - no sampler track, the Live bridge is not active"];
+    }
     return url;
 }
 

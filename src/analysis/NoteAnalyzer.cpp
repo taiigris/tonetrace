@@ -15,7 +15,6 @@ constexpr float kMinResidualShare = 0.25f;  // drop notes mostly explained by lo
 constexpr int kMaxPicksPerFrame = 12;
 constexpr int kMedianWidth = 5;
 constexpr int kMaxSuppressedHarmonic = 52;
-constexpr double kMinNoteSec = 0.060;
 constexpr double kBridgeGapSec = 0.040;
 constexpr float kEdgeTrimRatio = 0.35f;
 constexpr double kShortNoteSec = 0.15;   // short AND weak segments are almost always partial leakage
@@ -172,7 +171,7 @@ float strengthFromRelative(float meanRel) {
 
 }  // namespace
 
-std::vector<NoteSegment> extractSegments(const Salience& sal, float sensitivity) {
+std::vector<NoteSegment> extractSegments(const Salience& sal, float sensitivity, double minNoteSec) {
     std::vector<NoteSegment> segments;
     if (sal.frames == 0) return segments;
     const float threshold = std::pow(10.0f, sensitivityToThresholdDb(sensitivity) / 20.0f);
@@ -191,7 +190,7 @@ std::vector<NoteSegment> extractSegments(const Salience& sal, float sensitivity)
             note.pitch = kMinNote + n;
             note.startSec = std::max(0.0, run.first * sal.hopSec - sal.hopSec / 2);
             note.endSec = std::min(sal.lengthSec, run.last * sal.hopSec + sal.hopSec / 2);
-            if (note.endSec - note.startSec < kMinNoteSec) continue;
+            if (note.endSec - note.startSec < minNoteSec) continue;
             float sum = 0.0f;
             for (int f = run.first; f <= run.last; ++f) sum += sal.at(f, n);
             note.strength = strengthFromRelative(sum / float(run.last - run.first + 1));
@@ -211,10 +210,10 @@ void sortNotes(std::vector<NoteEvent>& notes) {
 }  // namespace
 
 std::vector<NoteEvent> extractNotes(const Salience& sal, float sensitivity, const Spectrogram& spec,
-                                    const FilterSettings& filter) {
+                                    const FilterSettings& filter, double minNoteSec) {
     std::vector<NoteEvent> notes;
     if (spec.frames != sal.frames) return notes;
-    for (NoteSegment& seg : extractSegments(sal, sensitivity)) {
+    for (NoteSegment& seg : extractSegments(sal, sensitivity, minNoteSec)) {
         annotateSegment(spec, &seg);
         if (!filter.hideDrums || !isDrumSegment(spec, seg, filter.drumFilter)) notes.push_back(seg.note);
     }

@@ -1,4 +1,5 @@
 #include <cmath>
+#include <set>
 
 #include "TestDrums.h"
 #include "TestKernel.h"
@@ -121,13 +122,17 @@ TEST(kernel_quick_grab_amount_and_hide_drums) {
     for (size_t i = 0; i < sig.size(); ++i) sig[i] += quiet[i];
     CHECK(tk::record(k, sig));
 
+    // 4.3: Quick Grab always works on the harmonic part; the Hide drums toggle only dims the picture
     k.setParam(kParamHideDrums, 0.0f);
     k.setParam(kParamQuickGrab, 1.0f);
-    const int withDrums = k.quickGrab();
+    const int withToggleOff = k.quickGrab();
+    std::set<int> pitches;
+    for (const NoteEvent& n : k.snapshot()->notes) pitches.insert(n.pitch);
     k.undo();
     k.setParam(kParamHideDrums, 1.0f);
-    const int hidden = k.quickGrab();
-    CHECK_MSG(hidden < withDrums, "hide drums %d, drums kept %d", hidden, withDrums);
+    const int withToggleOn = k.quickGrab();
+    CHECK_MSG(withToggleOn == withToggleOff, "toggle on %d, off %d", withToggleOn, withToggleOff);
+    CHECK_MSG(pitches == (std::set<int>{69, 73}), "the grabbed notes are the two tonal lines, no drum notes (%zu pitches)", pitches.size());
     k.undo();
 
     k.setParam(kParamQuickGrab, 0.0f);  // strongest lines only: the -28 dB line stays out

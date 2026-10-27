@@ -9,7 +9,8 @@
 namespace ttr {
 
 constexpr int kNumSnapModes = 6;
-constexpr int kSnapOnset = 5;  // edges snap to detected onsets and line ends (default); 0 = off, 1..4 = grid
+constexpr int kSnapOnset = 5;  // new notes snap to detected onsets and line ends (option); 0 = off, 1..4 = grid
+constexpr int kSnapGrid16 = 3;  // the default: grid 1/16
 constexpr double kMinFreeNoteSec = 0.03;  // shortest note without snap
 const char* snapName(int mode);           // Off, 1/4, 1/8, 1/16, 1/32, Onset
 double snapGridBeats(int mode);           // 0 = off (also for Onset: no grid)
@@ -25,6 +26,14 @@ struct TimeGrid {
 double gridStepSec(const TimeGrid& grid);            // 0 when snap is off
 double snapTime(double sec, const TimeGrid& grid);   // nearest grid line (Onset: nearest onset / line edge); unchanged when snap is off
 double minNoteSec(const TimeGrid& grid);
+// Grid snap only (Onset and Off leave the time unchanged): moving and resizing is never bound to lines or onsets.
+double snapTimeToGrid(double sec, const TimeGrid& grid);
+
+// What a gesture snaps to: Alt turns the snap of the moment around (snap on -> free, Off -> grid 1/16).
+struct SnapPlan { TimeGrid grid; bool snap = false; };
+SnapPlan snapPlanFor(const TimeGrid& grid, bool altDown);
+// Magnet for a new note: on / off setting, inverted by Alt.
+inline bool magnetActive(bool magnetOn, bool altDown) { return magnetOn != altDown; }
 
 // Magnet: the pitch (within +-1 semitone of `pitch`) with the most energy between t0 and t1.
 // `energies` is frames * kNumNotes; ties and silence keep `pitch`.

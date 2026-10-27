@@ -1,12 +1,17 @@
-Tonetrace 4.1.0 (macOS, VST3)
+Tonetrace 4.3.0 (macOS, VST3)
 
 Installation
   1. In diesem Ordner im Terminal ausfuehren:  ./install.sh
-     (kopiert Tonetrace.vst3 nach ~/Library/Audio/Plug-Ins/VST3, signiert ad hoc, entfernt die Quarantaene)
+     (kopiert Tonetrace.vst3 nach ~/Library/Audio/Plug-Ins/VST3, signiert ad hoc, entfernt die Quarantaene
+     und installiert die Live-Bridge nach ~/Music/Ableton/User Library/Remote Scripts/TonetraceBridge)
   2. Ableton Live: Einstellungen > Plug-Ins > "VST3-Plug-In-Systemordner verwenden", neu scannen.
      FL Studio: Options > Manage plugins > Find plugins.
   3. Tonetrace auf die Audiospur mit dem Sample ziehen, Record druecken, Sample abspielen, Noten zeichnen,
      "Drag MIDI" in eine MIDI-Spur ziehen.
+
+Live-Bridge ("New Sampler Track"), einmalig:
+  Live > Einstellungen > Link, Tempo & MIDI > Control Surface = "TonetraceBridge" (Input/Output: None), Live neu starten.
+  Im Plug-in zeigt "Live bridge: connected", dass sie laeuft. Ausfuehrlich: README.md im Quellcode-Repository.
 
 Deinstallation:  ./uninstall.sh   (mit --logs auch den Log-Ordner loeschen; ~/Music/Tonetrace bleibt unberuehrt)
 

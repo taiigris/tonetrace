@@ -6,8 +6,8 @@
 #import "ui/TTRTheme.h"
 #import "ui/TTRViewportInput.h"
 
-const NSSize kTTRDefaultSize = {1100, 640};
-const NSSize kTTRMinimumSize = {820, 520};
+const NSSize kTTRDefaultSize = {1100, 800};
+const NSSize kTTRMinimumSize = {820, 650};
 
 const CGFloat kTTRPanelWidth = 190, kTTRMargin = 10, kTTRPianoWidth = 38, kTTRStatusHeight = 26, kTTRScrollHeight = 12, kTTRWaveLaneHeight = 44;
 const double kTTRActiveHz = 30.0, kTTRIdleHz = 5.0;
@@ -130,7 +130,7 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     _scroll = [[TTRScrollBar_v1 alloc] initWithFrame:NSZeroRect];
     void (^zoom)(double) = ^(double speed) { [weak editParam:ttr::kParamSpeed value:float(speed)]; };
     _wave.toolTip = @"Waveform: click sets the preview start, drag selects a loop region, wheel scrolls and zooms";
-    _map.toolTip = @"Note map: click a line to grab it as a note, drag on empty space to draw one, drag a note to move it, drag its ends to resize, right-click for the menu";
+    _map.toolTip = @"Note map: click or drag anywhere to draw a note, drag a note to move it to any row and time, drag its ends to resize, right-click for the menu";
     _piano.toolTip = @"Piano: click a key to hear the pitch";
     _scroll.toolTip = @"Scroll the timeline";
     _wave.onZoom = zoom;
@@ -150,7 +150,7 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     for (NSView* v in @[ _wave, _map, _piano, _scroll ]) [self addSubview:v];
 
     // side panel
-    _gainKnob = [self addKnob:@"Gain" param:ttr::kParamGain tip:@"Brightness of the map" format:^NSString*(double v) { return [NSString stringWithFormat:@"%+.0f dB", (v - 0.5) * 40]; }];
+    _gainKnob = [self addKnob:@"Gain" param:ttr::kParamGain tip:@"Brightness of the spectrum" format:^NSString*(double v) { return [NSString stringWithFormat:@"%+.0f dB", (v - 0.5) * 40]; }];
     _rangeKnob = [self addKnob:@"Range" param:ttr::kParamRange tip:@"Dynamic range of the map: lower = only the strongest lines" format:^NSString*(double v) { return [NSString stringWithFormat:@"%.0f dB", 18 + v * 50]; }];
     _speedMinus = [self addButton:@"−" kind:TTRButtonKindNormal tip:@"Zoom out in time" action:^{ [weak stepSpeed:-1]; }];
     _speedPlus = [self addButton:@"+" kind:TTRButtonKindNormal tip:@"Zoom in in time" action:^{ [weak stepSpeed:1]; }];
@@ -158,14 +158,18 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     _speedReadout.title = @"Speed";
     _speedReadout.toolTip = @"Time zoom (Cmd+wheel or pinch)";
     [self addSubview:_speedReadout];
-    _hideDrumsButton = [self addToggle:@"Hide drums" param:ttr::kParamHideDrums tip:@"Show only the harmonic part of the sound: drum hits fade out of the map (and out of Quick Grab)"];
-    _magnetButton = [self addToggle:@"Magnet" param:ttr::kParamMagnet tip:@"New notes snap to the strongest line within one semitone of the pointer"];
-    _fundamentalsButton = [self addButton:@"Fundamentals" kind:TTRButtonKindNormal tip:@"Fundamentals: overtones (2x to 6x and beyond of a stronger, lower line) are drawn dark, so every note shows only its fundamental line; Quick Grab prefers fundamentals"
+    _hideDrumsButton = [self addToggle:@"Hide drums" param:ttr::kParamHideDrums tip:@"Dim drum hits in the spectrum to 30 % brightness (nothing is removed). Quick Grab always leaves drums out"];
+    _magnetButton = [self addToggle:@"Magnet" param:ttr::kParamMagnet tip:@"New notes you draw snap to the strongest line within one semitone of the pointer (Alt flips it for one gesture). Moving notes is always free"];
+    _fundamentalsButton = [self addButton:@"Fundamentals" kind:TTRButtonKindNormal tip:@"Fundamentals: dim the overtones of stronger, lower lines to 30 % brightness, so mostly the fundamental of every note stays bright"
                                       action:^{ ttr::LineView v = kernel->lineView(); v.fundamentals = !v.fundamentals; [weak lineViewChanged:v]; }];
     _alignButton = [self addButton:@"Align" kind:TTRButtonKindNormal tip:@"Align to sample: shifts the semitone rows by the sample's detected tuning, so the lines sit in the middle of their rows (notes get the right MIDI pitch)"
                                action:^{ ttr::LineView v = kernel->lineView(); v.alignToSample = !v.alignToSample; [weak lineViewChanged:v]; }];
     _waveButton = [self addButton:@"Wave" kind:TTRButtonKindNormal tip:@"Show or hide the waveform lane above the map (the time ruler stays)" action:^{ [weak toggleWave]; }];
     _waveButton.isOn = YES;
+    _spectrumButton = [self addButton:@"Spectrum" kind:TTRButtonKindNormal tip:@"View: the full spectrogram (default). Tone bands run horizontally, drums are vertical stripes" action:^{ ttr::LineView v = kernel->lineView(); v.isSpectrum = YES; [weak lineViewChanged:v]; }];
+    _linesButton = [self addButton:@"Lines" kind:TTRButtonKindNormal tip:@"View: only the tracked spectral peaks as thin glowing lines" action:^{ ttr::LineView v = kernel->lineView(); v.isSpectrum = NO; [weak lineViewChanged:v]; }];
+    _grabOnClickButton = [self addButton:@"Grab on click" kind:TTRButtonKindNormal tip:@"A click exactly on a strong line grabs the whole line as a note (off: a click always draws a note of the snap length)"
+                                  action:^{ ttr::LineView v = kernel->lineView(); v.grabOnClick = !v.grabOnClick; [weak lineViewChanged:v]; }];
     _tuningMinus = [self addButton:@"−" kind:TTRButtonKindNormal tip:@"Tuning trim -5 cent (move the rows down)" action:^{ [weak nudgeTuning:-1]; }];
     _tuningPlus = [self addButton:@"+" kind:TTRButtonKindNormal tip:@"Tuning trim +5 cent (move the rows up), at most 50 cent" action:^{ [weak nudgeTuning:1]; }];
     _tuningReadout = [[TTRReadout_v1 alloc] initWithFrame:NSZeroRect];
@@ -201,6 +205,13 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     [self addSubview:_dragButton];
     _saveButton = [self addButton:@"Save .mid" kind:TTRButtonKindNormal tip:@"Save the selected notes (or all notes) as a MIDI file" action:^{ [weak saveNotesAsMidi]; }];
     _syncButton = [self addButton:@"Sync" kind:TTRButtonKindNormal tip:@"Sync to host: while the host transport runs, the preview follows the song position (relative to where you recorded)" action:^{ [weak syncClicked]; }];
+    _samplerButton = [self addButton:@"New Sampler Track" kind:TTRButtonKindNormal tip:@"Ableton Live: create a MIDI track with a Simpler and a clip with the selected notes (or all) through the Tonetrace Bridge" action:^{ [weak samplerClicked]; }];
+    _samplerDragButton = [self addButton:@"Sampler track on Drag" kind:TTRButtonKindNormal tip:@"After a Drag MIDI also create the sampler track in Live (needs the Tonetrace Bridge)"
+                                  action:^{ ttr::LineView v = kernel->lineView(); v.samplerOnDrag = !v.samplerOnDrag; [weak lineViewChanged:v]; }];
+    _bridgeReadout = [[TTRReadout_v1 alloc] initWithFrame:NSZeroRect];
+    _bridgeReadout.title = @"Live bridge";
+    _bridgeReadout.toolTip = @"Tonetrace Bridge: a Live MIDI Remote Script. Connected = it answered within the last 3 seconds (see the README for the set-up)";
+    [self addSubview:_bridgeReadout];
     _infoButton = [self addButton:@"ⓘ" kind:TTRButtonKindNormal tip:@"Diagnostics: version, host, load, log folder" action:^{ [weak toggleDiagnostics]; }];
     _undoButton = [self addButton:@"Undo" kind:TTRButtonKindNormal tip:@"Undo the last edit, Quick Grab, Clear or Reset (Cmd+Z)" action:^{ [weak undoClicked]; }];
     _redoButton = [self addButton:@"Redo" kind:TTRButtonKindNormal tip:@"Redo (Cmd+Shift+Z)" action:^{ [weak redoClicked]; }];
@@ -334,6 +345,12 @@ static NSString* formatSpeed(double speed) {
     _hideDrumsButton.isOn = _kernel->param(ttr::kParamHideDrums) >= 0.5f;
     const ttr::LineView lineView = _kernel->lineView();
     _fundamentalsButton.isOn = lineView.fundamentals;
+    _spectrumButton.isOn = lineView.isSpectrum;
+    _linesButton.isOn = !lineView.isSpectrum;
+    _grabOnClickButton.isOn = lineView.grabOnClick;
+    _samplerDragButton.isOn = lineView.samplerOnDrag;
+    _samplerButton.isEnabled = !busy && noteCount > 0 && !_samplerPending;
+    [self updateBridgeStatus];
     _alignButton.isOn = lineView.alignToSample;
     _tuningReadout.value = [self tuningText];
     _tuningReadout.isHighlighted = lineView.alignToSample && _kernel->detectedTuningCents() != 0.0;

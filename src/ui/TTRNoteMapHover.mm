@@ -7,7 +7,7 @@
 #import "ui/TTRTheme.h"
 
 static const CGFloat kLabelPadX = 8.0, kLabelHeight = 20.0, kLabelOffsetX = 14.0, kLabelOffsetY = 16.0, kGhostLabelHeight = 16.0;
-static const double kFlashSeconds = 0.8, kDefaultGhostBeats = 0.25;
+static const double kFlashSeconds = 0.8;
 
 static NSString* formatCents(double cents) {
     const long rounded = lround(cents);
@@ -36,10 +36,8 @@ static NSString* lengthName(double beats) {
     if ([self hitNoteIndexAt:cursor] >= 0) return NO;
     const ttr::LineHit hit = [self lineAtPoint:cursor];
     if (hit.track >= 0) { *out = [self lines]->noteForTrack(hit.track, [self tuningCents]); return YES; }
-    const ttr::TimeGrid grid = _kernel->timeGrid();
-    const double start = std::max(0.0, ttr::snapTime(_vp->cursorSec, grid));
-    const double length = std::max(ttr::gridStepSec(grid), kDefaultGhostBeats / grid.beatsPerSec());
-    *out = ttr::makeNote(std::clamp(int(std::lround(_vp->cursorPitch)), ttr::kMinNote, ttr::kMaxNote), start, start + length, grid, false);
+    const BOOL alt = (NSEvent.modifierFlags & NSEventModifierFlagOption) != 0;
+    *out = [self clickNoteAtTime:_vp->cursorSec pitch:std::clamp(int(std::lround(_vp->cursorPitch)), ttr::kMinNote, ttr::kMaxNote) alt:alt];
     return YES;
 }
 
@@ -88,7 +86,7 @@ static NSString* lengthName(double beats) {
     ttr::NoteEvent ghost;
     if ([self ghostNote:&ghost]) {
         const NSRect r = TTRNoteBarRect([self rectForNote:ghost]);
-        TTRFillRounded(r, MIN(1.5, r.size.height / 3.0), TTRHex(0x2FBF5B, 0.38));
+        TTRFillRounded(r, MIN(1.5, r.size.height / 3.0), TTRHex(0x6BEBC8, 0.45));
         NSString* label = [self ghostLabel];
         NSFont* font = TTRFont(9, NSFontWeightBold);
         const CGFloat w = TTRTextWidth(label, font) + 2 * kLabelPadX;

@@ -11,6 +11,7 @@ void LiveLines::prepare(double decimatedRate, int maxFrames) {
     maxFrames_ = maxFrames;
     points_.assign(size_t(maxFrames) * kLineSlots);
     counts_.assign(size_t(maxFrames));
+    fine_.assign(size_t(maxFrames) * kFineBins);
     reset();
 }
 
@@ -31,6 +32,7 @@ void LiveLines::advance(const float* decimated, size_t count) {
         tracker_.assign(frames, row, n);
         for (int i = 0; i < n; ++i) peak = std::max(peak, row[i].level);
         counts_[size_t(frames)] = uint8_t(n);
+        analyzer_->fineRow(&fine_[size_t(frames) * kFineBins]);
         ++frames;
         peak_.store(peak, std::memory_order_relaxed);  // before the frame count: a reader that sees the frame sees its level
         frames_.store(frames, std::memory_order_release);

@@ -4,3 +4,6 @@ external/
 dist/
 image.png
 notgrabber.png
+currentstate.png
+notegrabberinstalled.png
+__pycache__/

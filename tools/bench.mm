@@ -264,7 +264,7 @@ void benchMemory() {
 }
 
 void benchEditor() {
-    line("\n## Editor (1100 x 640, 120 s recording)\n");
+    line("\n## Editor (1100 x 800, 120 s recording)\n");
     auto kernel = std::make_shared<TonetraceKernel>();
     kernel->prepare(44100.0, 512);
     kernel->setHostTransport(120.0, 0.0);
@@ -323,6 +323,18 @@ void benchEditor() {
         line("- one 128 px glow tile (2x, band %.0f pt high): %.3f ms", bandHeight, (nowSeconds() - t0) / 20.0 * 1e3);
     }
 
+    // one spectrum tile (the default view): fine pitch grid, 128 px at 2x, the whole note range
+    {
+        const MapView mv = kernel->mapView();
+        TTRHeatParams hp;
+        hp.fine = mv.fine; hp.linePoints = mv.linePoints; hp.lineCounts = mv.lineCounts; hp.data = mv.raw; hp.harmonic = mv.harmonic; hp.harmonicFrames = mv.harmonicFrames;
+        hp.frames = mv.lineFrames; hp.hopSec = mv.lines ? mv.lines->hopSec : mv.hopSec; hp.reference = mv.linePeak * 0.25f; hp.fundamentals = true; hp.hideDrums = true;
+        hp.scrollSec = 20.0; hp.pxPerSec = 100.0; hp.scrollY = 0.0; hp.rowH = 15.0; hp.width = 64.0; hp.height = ttr::kNumNotes * 15.0; hp.scale = 2.0;
+        const double t0 = nowSeconds();
+        for (int i = 0; i < 10; ++i) CGImageRelease(TTRRenderFine(hp));
+        line("- one 128 px spectrum tile (2x, %.0f pt high, drums and overtones dimmed): %.3f ms", hp.height, (nowSeconds() - t0) / 10.0 * 1e3);
+    }
+
     // idle: what a 5 Hz tick costs
     double cpu0 = cpuSeconds();
     const int ticks = 100;
@@ -354,7 +366,7 @@ void benchEditor() {
     line("- while recording 10 s (refresh + whole-window draw of a growing map every 0.5 s): median %.2f ms, slowest %.2f ms (the first frame after Record, when every tile is cold)", liveMedian, liveWorst);
 
     line("\n| Target | measured | limit | |\n|---|---|---|---|");
-    target(scroll < kFrameTargetMs, "Frame time, 1100x640 with 120 s recording (cached tiles)", scroll, "ms", kFrameTargetMs);
+    target(scroll < kFrameTargetMs, "Frame time, 1100x800 with 120 s recording (cached tiles)", scroll, "ms", kFrameTargetMs);
     target(liveMedian < kFrameTargetMs, "Frame time while recording (median)", liveMedian, "ms", kFrameTargetMs);
     target(idlePct < kIdleUiTargetPct, "Editor idle CPU", idlePct, "%", kIdleUiTargetPct);
     [view shutdown];

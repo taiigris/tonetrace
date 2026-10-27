@@ -62,8 +62,8 @@ int main(int argc, const char* argv[]) {
         check(automatable == 5 && flagsRight, "only Preview, Sound, Mix, Solo and Bypass are automatable; view settings are hidden");
         ParameterInfo info{};
         check(a.controller->getParameterInfo(ttr::kParamBypass, info) == kResultOk && (info.flags & ParameterInfo::kIsBypass), "Bypass parameter is flagged kIsBypass");
-        check(std::fabs(a.controller->getParamNormalized(ttr::kParamHideDrums) - 1.0) < 1e-9, "Hide drums defaults to on");
-        check(std::fabs(a.controller->getParamNormalized(ttr::kParamSnap) - 1.0) < 1e-9, "Snap defaults to Onset (last of 6 entries)");
+        check(std::fabs(a.controller->getParamNormalized(ttr::kParamHideDrums) - 0.0) < 1e-9, "Hide drums defaults to off");
+        check(std::fabs(a.controller->getParamNormalized(ttr::kParamSnap) - 0.6) < 1e-6, "Snap defaults to 1/16 (entry 3 of 0..5)");
 
         printf("3. Record on / off, spectrogram and peaks\n");
         const double length = 6.5;
@@ -206,11 +206,11 @@ int main(int argc, const char* argv[]) {
                   "supports NSView only");
             ViewRect size;
             view->getSize(&size);
-            check(size.right - size.left == 1100 && size.bottom - size.top == 640, "default size 1100x640");
+            check(size.right - size.left == 1100 && size.bottom - size.top == 800, "default size 1100x800");
             check(view->canResize() == kResultTrue, "resizable");
             ViewRect tiny(0, 0, 100, 100);
             view->checkSizeConstraint(&tiny);
-            check(tiny.right - tiny.left == 820 && tiny.bottom - tiny.top == 520, "size constraint enforces the minimum 820x520");
+            check(tiny.right - tiny.left == 820 && tiny.bottom - tiny.top == 650, "size constraint enforces the minimum 820x650");
 
             NSWindow* window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, size.right, size.bottom) styleMask:NSWindowStyleMaskBorderless
                                                              backing:NSBackingStoreBuffered defer:NO];

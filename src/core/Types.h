@@ -63,7 +63,7 @@ struct AudioClip {
 };
 
 struct FilterSettings {
-    bool hideDrums = true;
+    bool hideDrums = false;
     float drumFilter = 0.6f;  // 0..1, scales the gate and segment-filter thresholds
 };
 

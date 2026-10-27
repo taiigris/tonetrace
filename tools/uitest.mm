@@ -66,8 +66,10 @@ int main() {
         if (!map || !lane || !dragButton) return 1;
         check(kernel->snapshot()->notes.empty() && !dragButton.isEnabled, "no notes yet: Drag MIDI is inactive");
 
-        printf("2. Draw a note by click-dragging (Snap 1/16, Magnet on)\n");
-        kernel->setParam(kParamSnap, 3.0f);  // the default snap mode is Onset; sections 2-5 test the grid
+        printf("2. Draw a note by click-dragging (Snap 1/16 is the default, Magnet switched on)\n");
+        check(kernel->param(kParamSnap) == 3.0f && kernel->param(kParamMagnet) < 0.5f && kernel->param(kParamHideDrums) < 0.5f, "defaults of a new instance: Snap 1/16, Magnet off, Hide drums off");
+        check(kernel->lineView().isSpectrum && !kernel->lineView().grabOnClick, "defaults: Spectrum view, Grab on click off");
+        kernel->setParam(kParamMagnet, 1.0f);
         drag(map, [map pointForTime:1.04 pitch:70], [map pointForTime:1.55 pitch:70]);  // starts one row too high: the magnet pulls it down
         [view refreshNow];
         auto notes = kernel->snapshot()->notes;
@@ -79,15 +81,13 @@ int main() {
         check(dragButton.isEnabled, "Drag MIDI is active now");
         check(kernel->canUndo(), "the drawing is one undo step");
 
-        printf("3. Alt = no snap, magnet off\n");
-        kernel->setParam(kParamMagnet, 0.0f);
+        printf("3. Alt flips the snap and the magnet of the moment (here: no snap, magnet off)\n");
         drag(map, [map pointForTime:2.013 pitch:72], [map pointForTime:2.337 pitch:72], NSEventModifierFlagOption);
         notes = kernel->snapshot()->notes;
         check(notes.size() == 2, "second note created");
         bool free = false;
         for (const NoteEvent& n : notes) free |= n.pitch == 72 && !onGrid(n.startSec) && std::fabs(n.startSec - 2.013) < 0.02;
-        check(free, "pitch 72 stays on the row under the cursor (magnet off) and the start is off the grid (Alt)");
-        kernel->setParam(kParamMagnet, 1.0f);
+        check(free, "pitch 72 stays on the row under the cursor (Alt turned the magnet off) and the start is off the grid (Alt turned the snap off)");
 
         printf("4. Move, resize, delete\n");
         const NSPoint grab = [map pointForTime:1.25 pitch:69];
@@ -132,6 +132,36 @@ int main() {
         check(kernel->snapshot()->notes.empty(), "menu Clear notes removed every note");
         [map undoEdit];
         check(kernel->snapshot()->notes.size() == menuBase, "Clear notes is undoable");
+
+        printf("4b. Free notes: draw and move into rows without energy, Magnet on, never pulled to a line or an onset\n");
+        kernel->editNotes({});
+        drag(map, [map pointForTime:0.30 pitch:45], [map pointForTime:0.80 pitch:45]);  // A2 at 0.3 s: nothing is recorded there
+        notes = kernel->snapshot()->notes;
+        check(notes.size() == 1 && notes[0].pitch == 45 && std::fabs(notes[0].startSec - 0.25) < 1e-6 && std::fabs(notes[0].endSec - 0.75) < 1e-6,
+              "drawing in an energy-less row: the note lands exactly on pitch 45, 0.25 - 0.75 s");
+        const NSPoint empty = [map pointForTime:3.5 pitch:50];
+        [map mouseDown:mouse(NSEventTypeLeftMouseDown, map, empty)];
+        [map mouseUp:mouse(NSEventTypeLeftMouseUp, map, empty)];
+        notes = kernel->snapshot()->notes;
+        bool clicked = false;
+        for (const NoteEvent& n : notes) clicked |= n.pitch == 50 && std::fabs(n.startSec - 3.5) < 1e-6 && std::fabs(n.endSec - 3.625) < 1e-6;
+        check(notes.size() == 2 && clicked, "a click on empty space draws a note of the snap length (1/16 = 125 ms) on that row");
+        const NSPoint mid = [map pointForTime:0.5 pitch:45];
+        drag(map, mid, NSMakePoint(mid.x + 2.5 * 100.0, [map pointForTime:0.5 pitch:38].y));  // +2.5 s, -7 semitones, into more silence
+        notes = kernel->snapshot()->notes;
+        bool landed = false;
+        for (const NoteEvent& n : notes) landed |= n.pitch == 38 && std::fabs(n.startSec - 2.75) < 1e-6 && std::fabs(n.endSec - 3.25) < 1e-6;
+        check(landed, "moving into an energy-less row (Magnet on): the note sits exactly on pitch 38, 2.75 - 3.25 s");
+        kernel->setParam(kParamSnap, float(kSnapOnset));
+        const NSPoint mid2 = [map pointForTime:3.0 pitch:38];
+        drag(map, mid2, NSMakePoint(mid2.x + 0.37 * 100.0, mid2.y));  // near the onset at 3.0 s / 1.0 s
+        notes = kernel->snapshot()->notes;
+        landed = false;
+        for (const NoteEvent& n : notes) landed |= n.pitch == 38 && std::fabs(n.startSec - 3.12) < 1e-3;
+        check(landed, "moving with Snap = Onset is not pulled to an onset: start 3.12 s");
+        kernel->setParam(kParamSnap, 3.0f);
+        kernel->setParam(kParamMagnet, 0.0f);
+        kernel->editNotes({});
 
         printf("5. Lasso, keyboard, Drag MIDI button\n");
         [map undoEdit];
@@ -226,8 +256,22 @@ int main() {
         check(banner.isShowing && [banner.text isEqualToString:@"Test notice"], "a kernel notice becomes a banner");
         [banner hideBanner];
 
-        printf("8. Pitch lines: hover label, ghost note, click-to-grab, onset snap\n");
+        printf("8. Pitch lines: hover label, ghost note, click-to-grab (switched on), onset snap\n");
         kernel->editNotes({});
+        {
+            const NSPoint lineSpot = [map pointForTime:2.0 pitch:69];
+            [map mouseDown:mouse(NSEventTypeLeftMouseDown, map, lineSpot)];
+            [map mouseUp:mouse(NSEventTypeLeftMouseUp, map, lineSpot)];
+            const auto clicked = kernel->snapshot()->notes;
+            check(clicked.size() == 1 && std::fabs(clicked[0].startSec - 2.0) < 1e-6 && std::fabs(clicked[0].endSec - 2.125) < 1e-6,
+                  "Grab on click is off: a click on a line draws a note of the snap length, it does not grab the line");
+            kernel->editNotes({});
+        }
+        {
+            LineView v = kernel->lineView();
+            v.grabOnClick = true;
+            kernel->setLineView(v);
+        }
         kernel->setParam(kParamSnap, float(kSnapOnset));
         const double tuning = kernel->tuningOffsetCents();
         const NSPoint onLine = [map pointForTime:2.0 midi:69.0 + tuning / 100.0 + 0.12];  // 12 cent above the line, inside its row

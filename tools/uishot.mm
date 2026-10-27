@@ -2,6 +2,8 @@
 // Usage: tonetrace_uishot <output-dir>
 #import <Cocoa/Cocoa.h>
 
+#include <array>
+
 #include "TestDrums.h"
 #include "TestKernel.h"
 #include "TestSignals.h"
@@ -28,8 +30,9 @@ namespace {
 constexpr double kRate = 44100.0;
 constexpr double kDemoSeconds = 8.4;
 
-// A small A-minor tune in 4 bars at 120 bpm: plucked sawtooth melody (two held notes with light vibrato), a plucked bass
-// and a little noise, all slightly sharp of A = 440 Hz (like a sample from an old synth).
+// A small A-minor tune in 4 bars at 120 bpm like a real mix: plucked sawtooth melody (one held note with vibrato), a plucked
+// bass, soft pad chords, a full drum kit (kick on every beat, snare on 2 and 4, 8th and 16th hats) and a little noise,
+// all slightly sharp of A = 440 Hz (like a sample from an old synth).
 constexpr double kDetuneCents = 23.0;
 
 struct DemoNote { int pitch; double start, length; bool held; };
@@ -53,19 +56,34 @@ std::vector<float> demoSignal() {
         tones.push_back({tsig::midiToHz(bass[bar]) * tune, bar * 2.0, bar * 2.0 + 0.9, 0.5f, true, 0.0, 5.0, 0.9});
         tones.push_back({tsig::midiToHz(bass[bar]) * tune, bar * 2.0 + 1.5, bar * 2.0 + 1.9, 0.4f, true, 0.0, 5.0, 0.7});
     }
+    const int padRoots[4] = {57, 53, 55, 52};  // Am F G Em, one chord per bar, quiet
+    for (int bar = 0; bar < 4; ++bar)
+        for (const int offset : {0, 3, 7}) {
+            const int third = padRoots[bar] == 53 || padRoots[bar] == 55 ? (offset == 3 ? 4 : offset) : offset;
+            tones.push_back({tsig::midiToHz(padRoots[bar] + third) * tune, bar * 2.0, bar * 2.0 + 2.0, 0.07f, true, 6.0, 4.5, 0.0});
+        }
     std::vector<float> signal = tsig::synthHz(tones, kRate, kDemoSeconds);
+    std::vector<tdrum::Hit> hits, hats;
+    for (int beat = 0; beat * 0.5 < kDemoSeconds - 0.45; ++beat) {
+        const double at = beat * 0.5;
+        hits.push_back({at, 'k'});
+        if (beat % 2 == 1) hits.push_back({at, 's'});
+        for (const double off : {0.125, 0.25, 0.375}) hats.push_back({at + off, 'h'});
+    }
+    const std::vector<float> drums = tdrum::render(hits, kRate, kDemoSeconds, 1.5f), hatTrack = tdrum::render(hats, kRate, kDemoSeconds, 4.0f);  // hats are mixed loud: they are thin
+    for (size_t i = 0; i < signal.size() && i < drums.size(); ++i) signal[i] += drums[i] + hatTrack[i];
     tdrum::Noise noise;
     for (float& v : signal) v += 0.003f * noise.next();
     return signal;
 }
 
-// What the user would grab: every melody note and the first two bass notes, by clicking their lines.
-void grabByClicking(TTRNoteMapView_v1* map, const std::vector<DemoNote>& notes, double tuneCents) {
+// How the user draws after reading the spectrum: a drag along each band, snapped to the 1/16 grid.
+void drawByDragging(TTRNoteMapView_v1* map, const std::vector<DemoNote>& notes) {
     for (const DemoNote& n : notes) {
-        const double midi = n.pitch + tuneCents / 100.0, t = n.start + std::min(0.2, n.length / 2);
-        const NSPoint p = [map pointForTime:t midi:midi];
-        [map mouseDown:uievents::mouse(NSEventTypeLeftMouseDown, map, p)];
-        [map mouseUp:uievents::mouse(NSEventTypeLeftMouseUp, map, p)];
+        const NSPoint from = [map pointForTime:n.start + 0.02 pitch:n.pitch], to = [map pointForTime:n.start + n.length - 0.02 pitch:n.pitch];
+        [map mouseDown:uievents::mouse(NSEventTypeLeftMouseDown, map, from)];
+        for (int i = 1; i <= 4; ++i) [map mouseDragged:uievents::mouse(NSEventTypeLeftMouseDragged, map, NSMakePoint(from.x + (to.x - from.x) * i / 4, from.y))];
+        [map mouseUp:uievents::mouse(NSEventTypeLeftMouseUp, map, to)];
     }
 }
 
@@ -112,8 +130,8 @@ int main(int argc, const char* argv[]) {
         NSWindow* win = uievents::hostWindow(view, kTTRDefaultSize);
         (void)win;
         TTRNoteMapView_v1* map = (TTRNoteMapView_v1*)uievents::find(view, TTRNoteMapView_v1.class);
-        view->_vp->rowH = 13.0;  // the whole range of the tune (E2 to F5) on one screen
-        view->_vp->scrollY = (ttr::kMaxNote + 0.5 - 80.5) * view->_vp->rowH;
+        view->_vp->rowH = 9.0;  // the tune and the drums above it on one screen
+        view->_vp->scrollY = 0.0;
 
         kernel->setParam(kParamRecord, 1.0f);
         tk::run(*kernel, signal, 0, size_t(4.6 * kRate));
@@ -125,17 +143,16 @@ int main(int argc, const char* argv[]) {
         tk::run(*kernel, tk::silence(2));
         tk::waitFor([&] { return kernel->status() == KernelStatus::Idle && kernel->snapshot() && kernel->snapshot()->hasRecording() && kernel->snapshot()->lines; });
         [view refreshNow];
-        view->_vp->scrollY = (ttr::kMaxNote + 0.5 - 80.5) * view->_vp->rowH;
+        view->_vp->scrollY = 0.0;
         [view refreshNow];
         const double detected = kernel->detectedTuningCents();
         printf("detected tuning %+.1f ct (sample was detuned by %+.1f ct)\n", detected, kDetuneCents);
 
-        // click the lines like a user: melody bars 1 and 3 and the first two bass notes; one sustained note is dragged in by hand
-        std::vector<DemoNote> toGrab;
-        for (const DemoNote& n : demoMelody()) if (n.start < 2.0 || (n.start >= 4.0 && n.start < 6.0)) toGrab.push_back(n);
-        toGrab.push_back({45, 0.0, 0.9, false});
-        toGrab.push_back({41, 2.0, 0.9, false});
-        grabByClicking(map, toGrab, detected);
+        // draw the notes like a user: the first two bars of the melody and the bass, the sustained E5 by hand
+        std::vector<DemoNote> toDraw;
+        for (const DemoNote& n : demoMelody()) if (n.start < 4.0 || n.held) toDraw.push_back(n);
+        for (int bar = 0; bar < 4; ++bar) toDraw.push_back({std::array<int, 4>{45, 41, 43, 40}[size_t(bar)], bar * 2.0, 0.9, false});
+        drawByDragging(map, toDraw);
         const SnapshotPtr snap = kernel->snapshot();
         std::vector<int> picks;
         for (size_t i = 0; i < snap->notes.size(); ++i) if (snap->notes[i].pitch == 72 && snap->notes[i].startSec < 2.0) picks.push_back(int(i));
@@ -145,14 +162,26 @@ int main(int argc, const char* argv[]) {
         kernel->setParam(kParamPreview, 1.0f);
         tk::run(*kernel, tk::silence(160));  // advances the playhead into the loop
         [view refreshNow];
-        // hover a line that has not been grabbed yet (the sustained E5 with vibrato): label, outline and ghost note
-        const NSPoint cursor = [map pointForTime:6.5 midi:76 + detected / 100.0 + 0.08];
+        // hover an empty spot: label and ghost note of the snap length
+        const NSPoint cursor = [map pointForTime:5.13 pitch:79];
         [map mouseMoved:uievents::mouse(NSEventTypeMouseMoved, map, cursor)];
         [view refreshNow];
         view->_transientUntil = 0;  // no \"Grabbed ...\" message in the picture
         [view refreshNow];
         printf("hover label \"%s\", ghost \"%s\"\n", map.hoverLabel.UTF8String, map.ghostLabel.UTF8String);
         failures += !writePng(view, [dir stringByAppendingPathComponent:@"screenshot.png"]);
+
+        // ---- the same document in the Lines view
+        {
+            LineView v = kernel->lineView();
+            v.isSpectrum = false;
+            kernel->setLineView(v);
+            [view refreshNow];
+            failures += !writePng(view, [dir stringByAppendingPathComponent:@"screenshot-lines.png"]);
+            v.isSpectrum = true;
+            kernel->setLineView(v);
+            [view refreshNow];
+        }
 
         // ---- diagnostics panel open, with a banner behind it closed
         {
@@ -186,15 +215,15 @@ int main(int argc, const char* argv[]) {
         NSWindow* small = uievents::hostWindow(view, kTTRMinimumSize);
         (void)small;
         [view refreshNow];
-        view->_vp->scrollY = (ttr::kMaxNote + 0.5 - 80.5) * view->_vp->rowH;
+        view->_vp->scrollY = 0.0;
         [view refreshNow];
-        [map mouseMoved:uievents::mouse(NSEventTypeMouseMoved, map, [map pointForTime:2.8 midi:72 + detected / 100.0 + 0.05])];
+        [map mouseMoved:uievents::mouse(NSEventTypeMouseMoved, map, [map pointForTime:2.8 pitch:72])];
         [view refreshNow];
         failures += !writePng(view, [dir stringByAppendingPathComponent:@"screenshot-min.png"]);
 
         [view shutdown];
         kernel->deactivate();
-        printf("%zu notes grabbed, %zu selected\n", snap->notes.size(), picks.size());
+        printf("%zu notes drawn, %zu selected\n", snap->notes.size(), picks.size());
         printf("%s\n", failures ? "FAILED to write some images" : "screenshots written");
         return failures ? 1 : 0;
     }

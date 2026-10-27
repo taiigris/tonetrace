@@ -2,6 +2,7 @@
 // This is what the note map draws (thin lines instead of semitone bars) and what click-to-grab, the onset snap and the
 // magnet work on. Pitches are fractional MIDI numbers relative to A4 = 440 Hz; the tuning offset is applied by the callers.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -20,6 +21,13 @@ constexpr int kMinTrackPoints = 3;
 constexpr float kHarmonicDim = 0.2f;      // brightness factor of overtones with "Fundamentals"
 constexpr double kOnsetSnapSec = 0.080;   // how far the onset snap reaches
 constexpr double kMinLineNoteSec = 0.03;  // shortest note a click creates
+
+// Full spectrum on a fine pitch grid (the "Spectrum" view): kFineBinsPerNote bins per semitone, one byte per bin and frame.
+// The byte is the level in dB below full scale: 255 = 0 dBFS, 0 = -kFineFloorDb (a full-scale sine has the amplitude 1.0).
+constexpr int kFineBinsPerNote = 8;
+constexpr int kFineBins = kNumNotes * kFineBinsPerNote;
+constexpr float kFineFloorDb = 100.0f;
+inline float fineCodeToAmplitude(uint8_t code) { return code == 0 ? 0.0f : std::pow(10.0f, kFineFloorDb * (float(code) / 255.0f - 1.0f) / 20.0f); }
 
 struct LinePoint {
     float midi = 0.0f;   // fractional MIDI note, A4 = 69.0 at 440 Hz
@@ -48,6 +56,7 @@ struct PitchLines {
     float peak = 0.0f;                     // strongest visible level (display reference)
     std::vector<LinePoint> points;         // frames * kLineSlots, fundamentals first
     std::vector<uint8_t> counts;           // per frame
+    std::vector<uint8_t> fine;             // frames * kFineBins: the whole spectrum (see kFineBins); empty when not computed
     std::vector<LineTrack> tracks;         // indexed by LinePoint::track
     std::vector<float> onsets;             // seconds, ascending
     std::vector<float> edges;              // seconds, ascending: onsets and track starts / ends (snap targets)

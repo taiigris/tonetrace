@@ -34,6 +34,7 @@ CGImageRef TTRHeatTileCache::render(const TTRHeatParams& p, long index, double s
     tile.height = contentHeight;
     out->bandTop = 0.0;
     out->bandHeight = contentHeight;
+    if (p.fine) return TTRRenderFine(tile);
     if (p.linePoints) return TTRRenderLines(tile, &out->bandTop, &out->bandHeight);
     return TTRRenderHeatmap(tile);
 }
@@ -43,7 +44,7 @@ void TTRHeatTileCache::draw(CGContextRef ctx, const TTRHeatParams& params, std::
     TTRHeatParams p = params;
     if (isLive) p.reference = quantizedReference(p.reference);
     Key key;
-    key.data = p.linePoints ? (const void*)p.linePoints : (const void*)p.data; key.generation = generation; key.hopSec = p.hopSec; key.pxPerSec = p.pxPerSec; key.rowH = p.rowH;
+    key.data = p.fine ? (const void*)p.fine : p.linePoints ? (const void*)p.linePoints : (const void*)p.data; key.generation = generation; key.hopSec = p.hopSec; key.pxPerSec = p.pxPerSec; key.rowH = p.rowH;
     key.scale = p.scale; key.gain = p.gain; key.range = p.range; key.reference = p.reference; key.tuning = p.tuningCents; key.fundamentals = p.fundamentals; key.hideDrums = p.hideDrums;
     if (!(key == key_)) {
         clear();
@@ -61,7 +62,7 @@ void TTRHeatTileCache::draw(CGContextRef ctx, const TTRHeatParams& params, std::
         const double startSec = double(index) * spanSec;
         const int endFrame = int(std::ceil((startSec + spanSec) / p.hopSec)) + 1;  // last frame this tile can read
         const int startFrame = int(std::floor(startSec / p.hopSec + 0.5));
-        const int framesUsed = (p.data || p.linePoints) && startFrame < p.frames ? std::min(p.frames, endFrame) : 0;  // tiles beyond the data stay valid as they are
+        const int framesUsed = (p.data || p.linePoints || p.fine) && startFrame < p.frames ? std::min(p.frames, endFrame) : 0;  // tiles beyond the data stay valid as they are
         Tile& tile = tiles_[index];
         if (tile.framesUsed != framesUsed) {  // (a tile without lines has no image but is still up to date)
             if (tile.image) CGImageRelease(tile.image);

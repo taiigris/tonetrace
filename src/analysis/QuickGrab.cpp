@@ -10,7 +10,7 @@ namespace ttr {
 std::vector<NoteEvent> quickGrabNotes(const Spectrogram& spectrogram, float amount, const FilterSettings& filter, TaskControl* control) {
     const std::shared_ptr<Salience> salience = computeSalience(spectrogram, filter, control);
     if (!salience || (control && control->cancelled())) return {};
-    std::vector<NoteEvent> notes = extractNotes(*salience, amount, spectrogram, filter);
+    std::vector<NoteEvent> notes = extractNotes(*salience, amount, spectrogram, filter, kQuickGrabMinNoteSec);
     if (control) control->report(1.0f);
     for (NoteEvent& n : notes) { n.strength = 1.0f; n.selected = false; }
     return notes;
@@ -37,12 +37,12 @@ std::vector<NoteEvent> quickGrabFromLines(const PitchLines& lines, float amount,
 }
 
 std::vector<NoteEvent> quickGrabSnapshot(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, TaskControl* control) {
-    if (snapshot.lines) {
-        std::vector<NoteEvent> notes = quickGrabFromLines(*snapshot.lines, amount, tuningCents, filter);
-        if (control) control->report(1.0f);
-        return notes;
-    }
-    return snapshot.spectrogram ? quickGrabNotes(*snapshot.spectrogram, amount, filter, control) : std::vector<NoteEvent>{};
+    // 4.3: the proven salience analysis on the harmonic part always decides (the display toggle for drums only dims the picture).
+    // The fine pitch of the lines (tuning) only shifts the display grid; it plays no part in the segmentation.
+    if (!snapshot.spectrogram) return {};
+    FilterSettings analysis = filter;
+    analysis.hideDrums = true;
+    return quickGrabNotes(*snapshot.spectrogram, amount, analysis, control);
 }
 
 }  // namespace ttr

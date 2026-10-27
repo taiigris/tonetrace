@@ -9,6 +9,8 @@
 #import "ui/TTRViewportInput.h"
 
 static const CGFloat kNoteInsetPoints = 4.0;
+static const double kGrabToleranceSemis = 0.3;  // "exactly on a line": +-30 cent
+static const float kStrongLineRatio = 0.1f;     // a strong line is within 20 dB of the strongest one
 static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 117, kKeySpace = 49;
 
 @implementation TTRNoteMapView_v1
@@ -59,11 +61,13 @@ static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 
 - (double)tuningCents { return _kernel->tuningOffsetCents(); }
 - (CGFloat)yForMidi:(double)midi { return (ttr::kMaxNote + 0.5 - (midi - [self tuningCents] / 100.0)) * _vp->rowH - _vp->scrollY; }
 
-// The finished line under a view point (within kHoverSemitones of its pitch), if any.
+// The finished line under a view point, if any.
+// Only with "Grab on click", and only a strong line exactly under the point: everything else is free drawing.
 - (ttr::LineHit)lineAtPoint:(NSPoint)p {
     const ttr::PitchLines* lines = [self lines];
-    if (!lines || _status != ttr::KernelStatus::Idle) return {};
-    return lines->hitAt(_vp->timeForX(p.x), _vp->pitchForY(p.y) + [self tuningCents] / 100.0, 0.6);
+    if (!lines || _status != ttr::KernelStatus::Idle || !_kernel->lineView().grabOnClick) return {};
+    const ttr::LineHit hit = lines->hitAt(_vp->timeForX(p.x), _vp->pitchForY(p.y) + [self tuningCents] / 100.0, kGrabToleranceSemis);
+    return hit.track >= 0 && hit.level >= lines->peak * kStrongLineRatio ? hit : ttr::LineHit{};
 }
 
 - (void)flashTrack:(int)track {
@@ -123,7 +127,7 @@ static const NSInteger kKeyEscape = 53, kKeyBackspace = 51, kKeyForwardDelete = 
 - (NSString*)stateKey {
     const TTRViewport& v = *_vp;
     return [NSString stringWithFormat:@"%p|%d|%d|%d|%.1f|%d|%.4f|%.4f|%.2f|%.2f|%.0f|%.0f|%.3f|%d|%.3f|%.2f|%.2f|%d", _mv.snapshot.get(), _mv.frames, _mv.lineFrames, int(_status),
-            [self tuningCents], _kernel->lineView().fundamentals ? 1 : 0,
+            [self tuningCents], (_kernel->lineView().fundamentals ? 1 : 0) + (_kernel->lineView().isSpectrum ? 2 : 0),
             v.scrollSec, v.pxPerSec, v.scrollY, v.rowH, self.bounds.size.width, self.bounds.size.height, _recorded, _kernel->previewing() ? 1 : 0, _playhead,
             double(_kernel->param(ttr::kParamGain)), double(_kernel->param(ttr::kParamRange)), _kernel->param(ttr::kParamHideDrums) >= 0.5f ? 1 : 0];
 }

@@ -17,18 +17,23 @@ public:
     // Writes the peaks of frame f (centred at sample f*kHopSize) fundamentals first (strongest first), then overtones, at most kLineSlots; returns how many.
     // Samples outside [0, count) read as silence. Sets kLineHarmonic on overtones; track / age stay unset.
     int compute(const float* samples, long count, int f, LinePoint* out);
+    // The whole spectrum of the frame computed last on the fine pitch grid (kFineBins bytes, see PitchLines.h); silence writes zeros.
+    void fineRow(uint8_t* out) const;
 
 private:
     struct Band {
         int n = 0;
         double loHz = 0.0, hiHz = 0.0, binHz = 0.0;
         int firstBin = 0, lastBin = 0;
+        int magFirst = 0, magLast = 0;  // bins whose magnitude is computed: firstBin..lastBin plus the blend zone of the fine spectrum
         float scale = 0.0f;  // magnitude -> sinusoid amplitude
+        bool isValid = false;  // `mag` holds the last frame (false for a silent frame)
         std::vector<float> window, frame, re, im, mag;
         std::unique_ptr<RealFft> fft;
     };
     void collect(Band& band, const float* samples, long count, int f);
     void markHarmonics();
+    float fineLevel(const Band& b, double hz) const;  // magnitude at hz (interpolated or strongest bin of the fine bin's span)
 
     std::vector<Band> bands_;
     std::vector<LinePoint> cands_;

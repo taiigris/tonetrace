@@ -9,6 +9,8 @@
 namespace {
 
 const CGFloat kMinBeatPixels = 7.0, kMinBarPixels = 10.0;
+const float kSpectrumReference = 0.25f;  // full brightness from 12 dB below the strongest peak, so strong areas saturate to white
+const CGFloat kRowLineAlpha = 0.045, kOctaveLineAlpha = 0.12;
 const double kFrameAverageWeight = 0.1;
 
 void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
@@ -67,7 +69,9 @@ NSString* formatClock(double t) {
 - (void)drawHeat:(CGContextRef)ctx {
     const NSRect b = self.bounds;
     const BOOL isLive = _status != ttr::KernelStatus::Idle;
-    if (_mv.linePoints && _mv.lineFrames > 0) { [self drawLines:ctx live:isLive]; return; }
+    const BOOL isSpectrum = _kernel->lineView().isSpectrum;
+    if (isSpectrum && _mv.fine && _mv.lineFrames > 0) { [self drawSpectrum:ctx live:isLive]; return; }
+    if (!isSpectrum && _mv.linePoints && _mv.lineFrames > 0) { [self drawLines:ctx live:isLive]; return; }
     const BOOL useHarmonic = _kernel->param(ttr::kParamHideDrums) >= 0.5f && _mv.harmonic != nullptr;
     TTRHeatParams p;
     p.data = useHarmonic ? _mv.harmonic : _mv.raw;
@@ -83,6 +87,42 @@ NSString* formatClock(double t) {
     if (isLive) owner = _mv.hold[useHarmonic ? 1 : 0];
     else if (_mv.snapshot) owner = _mv.snapshot->spectrogram;
     _tiles.draw(ctx, p, std::move(owner), _mv.generation, isLive);
+}
+
+// The full spectrogram (default view): every bit of energy on a fine pitch grid; strong areas saturate to white.
+- (void)drawSpectrum:(CGContextRef)ctx live:(BOOL)isLive {
+    const NSRect b = self.bounds;
+    TTRHeatParams p;
+    p.fine = _mv.fine;
+    p.linePoints = _mv.linePoints;
+    p.lineCounts = _mv.lineCounts;
+    p.data = _mv.raw;
+    p.harmonic = _mv.harmonic;
+    p.harmonicFrames = _mv.harmonic ? _mv.harmonicFrames : 0;
+    p.frames = _mv.lineFrames;
+    p.isLive = isLive;
+    p.fundamentals = _kernel->lineView().fundamentals;
+    p.hideDrums = _kernel->param(ttr::kParamHideDrums) >= 0.5f;
+    p.tuningCents = float([self tuningCents]);
+    p.hopSec = _mv.lines ? _mv.lines->hopSec : _mv.hopSec;
+    p.reference = _mv.linePeak * kSpectrumReference;
+    p.scrollSec = _vp->scrollSec; p.pxPerSec = _vp->pxPerSec; p.scrollY = _vp->scrollY; p.rowH = _vp->rowH;
+    p.width = b.size.width; p.height = b.size.height;
+    p.scale = self.window ? self.window.backingScaleFactor : 1.0;
+    p.gain = _kernel->param(ttr::kParamGain);
+    p.range = _kernel->param(ttr::kParamRange);
+    _tiles.draw(ctx, p, _mv.lineHold, _mv.generation, isLive);
+    [self drawFaintRows:ctx];
+}
+
+// Semitone separators over the spectrum: dim, octaves (below every C) a little stronger.
+- (void)drawFaintRows:(CGContextRef)ctx {
+    const NSRect b = self.bounds;
+    for (int pitch = ttr::kMaxNote; pitch >= ttr::kMinNote; --pitch) {
+        const CGFloat y = floor(_vp->yTopForPitch(pitch) + _vp->rowH);  // lower edge of the row
+        if (y < 0 || y > b.size.height) continue;
+        fillRect(ctx, CGRectMake(0, y, b.size.width, 1), 0xFFFFFF, pitch % 12 == 0 ? kOctaveLineAlpha : kRowLineAlpha);
+    }
 }
 
 // Thin pitch lines on the piano-roll grid (heat map only for recordings without lines, e.g. restored long ones).
@@ -132,7 +172,9 @@ NSString* formatClock(double t) {
         const NSRect row = [self rectForNote:n];
         if (NSMaxX(row) < 0 || row.origin.x > b.size.width || NSMaxY(row) < 0 || row.origin.y > b.size.height) continue;
         const NSRect bar = TTRNoteBarRect(row);
-        TTRFillRounded(bar, MIN(1.5, bar.size.height / 3.0), n.selected ? TTRHex(0xFF9F43, 0.92) : TTRHex(0x2FBF5B, 0.88));
+        const CGFloat radius = MIN(1.5, bar.size.height / 3.0);
+        TTRFillRounded(bar, radius, n.selected ? TTRHex(0xFF9F43, 0.95) : TTRHex(0x6BEBC8, 0.95));  // turquoise bar, dark rim so it stays readable on white
+        TTRStrokeRounded(bar, radius, n.selected ? TTRHex(0x8A4A10, 0.9) : TTRHex(0x0C6E5C, 0.9), 1.0);
         if (!n.selected && int(i) != hovered) continue;  // the name only shows on hover or selection, beside the bar
         NSString* name = TTRNoteName(n.pitch);
         const CGFloat w = TTRTextWidth(name, font) + 8, h = 13;

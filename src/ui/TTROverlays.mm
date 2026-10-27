@@ -59,10 +59,12 @@ static const CGFloat kCloseWidth = 26;
     static NSString* const marks[] = {@"i", @"!", @"!"};
     TTRDrawText(marks[int(_level)], NSMakeRect(8, 0, 16, b.size.height), TTRFont(13, NSFontWeightHeavy), TTR_TEXT, NSTextAlignmentCenter);
     NSMutableParagraphStyle* style = [[NSMutableParagraphStyle alloc] init];
-    style.lineBreakMode = NSLineBreakByTruncatingTail;
+    style.lineBreakMode = NSLineBreakByWordWrapping;  // two lines at most
     NSMutableDictionary* attrs = [TTRTextAttrs(TTRFont(12, NSFontWeightMedium), TTR_TEXT) mutableCopy];
     attrs[NSParagraphStyleAttributeName] = style;
-    [_text ?: @"" drawInRect:NSMakeRect(30, 6, b.size.width - 30 - kCloseWidth - 8, b.size.height - 8) withAttributes:attrs];
+    const NSRect textBox = NSMakeRect(30, 0, b.size.width - 30 - kCloseWidth - 8, b.size.height);
+    const CGFloat textH = MIN(b.size.height - 8, ceil([_text ?: @"" boundingRectWithSize:NSMakeSize(textBox.size.width, 1000) options:NSStringDrawingUsesLineFragmentOrigin attributes:attrs].size.height));
+    [_text ?: @"" drawInRect:NSMakeRect(textBox.origin.x, round((b.size.height - textH) / 2), textBox.size.width, textH) withAttributes:attrs];
     TTRDrawText(@"×", NSMakeRect(b.size.width - kCloseWidth - 6, 0, kCloseWidth, b.size.height), TTRFont(16, NSFontWeightMedium), TTR_TEXT, NSTextAlignmentCenter);
 }
 

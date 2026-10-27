@@ -188,6 +188,7 @@ std::shared_ptr<PitchLines> computePitchLines(const float* samples, long count, 
     lines->hopSec = double(kHopSize) / rate;
     lines->points.assign(size_t(lines->frames) * kLineSlots, LinePoint{});
     lines->counts.assign(size_t(lines->frames), 0);
+    lines->fine.assign(size_t(lines->frames) * kFineBins, 0);
     LineFrameAnalyzer analyzer(rate);
     LineTracker tracker;
     bool any = false;
@@ -197,6 +198,7 @@ std::shared_ptr<PitchLines> computePitchLines(const float* samples, long count, 
         const int n = analyzer.compute(samples, count, f, row);
         tracker.assign(f, row, n);
         lines->counts[size_t(f)] = uint8_t(n);
+        analyzer.fineRow(&lines->fine[size_t(f) * kFineBins]);
         any = any || n > 0;
     }
     if (!any) return nullptr;

@@ -2,7 +2,7 @@
 #import "ui/TTRMainViewInternal.h"
 #import "ui/TTRTheme.h"
 
-static const CGFloat kCompactHeight = 520, kRelaxedHeight = 640;  // the panel scales between these window heights
+static const CGFloat kCompactHeight = 650, kRelaxedHeight = 800;  // the panel scales between these window heights
 static const CGFloat kPanelPad = 10, kColumnGap = 6;
 
 static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(compact + (relaxed - compact) * t); }
@@ -30,50 +30,37 @@ static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(
     CGFloat y = 8 + logoH + gap;
     const CGFloat col2 = x + half + kColumnGap;
 
-    _gainKnob.frame = NSMakeRect(x, y, half, knobH);
-    _rangeKnob.frame = NSMakeRect(col2, y, half, knobH);
-    y += knobH + gap;
-    const CGFloat stepW = 28;
-    _speedMinus.frame = NSMakeRect(x, y, stepW, btnH);
-    _speedReadout.frame = NSMakeRect(x + stepW + 4, y, w - 2 * (stepW + 4), btnH);
-    _speedPlus.frame = NSMakeRect(x + w - stepW, y, stepW, btnH);
-    y += btnH + gap;
-    _hideDrumsButton.frame = NSMakeRect(x, y, half, btnH);
-    _magnetButton.frame = NSMakeRect(col2, y, half, btnH);
-    y += btnH + gap;
-    _fundamentalsButton.frame = NSMakeRect(x, y, half, btnH);
-    _alignButton.frame = NSMakeRect(col2, y, half, btnH);
-    y += btnH + gap;
-    const CGFloat trimW = 24;
-    _tuningMinus.frame = NSMakeRect(x, y, trimW, btnH);
-    _tuningReadout.frame = NSMakeRect(x + trimW + 3, y, w - 2 * (trimW + 3), btnH);
-    _tuningPlus.frame = NSMakeRect(x + w - trimW, y, trimW, btnH);
-    y += btnH + gap;
-    _snap.frame = NSMakeRect(x, y, w, btnH);
-    y += btnH + gap;
+    // each helper places one row and moves y down
+    auto pair = [&](NSView* left, NSView* right, CGFloat h) { left.frame = NSMakeRect(x, y, half, h); right.frame = NSMakeRect(col2, y, half, h); y += h + gap; };
+    auto full = [&](NSView* v, CGFloat h) { v.frame = NSMakeRect(x, y, w, h); y += h + gap; };
+    auto stepper = [&](NSView* minus, NSView* readout, NSView* plus, CGFloat stepW) {
+        minus.frame = NSMakeRect(x, y, stepW, btnH);
+        readout.frame = NSMakeRect(x + stepW + 3, y, w - 2 * (stepW + 3), btnH);
+        plus.frame = NSMakeRect(x + w - stepW, y, stepW, btnH);
+        y += btnH + gap;
+    };
+    pair(_gainKnob, _rangeKnob, knobH);
+    stepper(_speedMinus, _speedReadout, _speedPlus, 28);
+    pair(_spectrumButton, _linesButton, btnH);
+    pair(_hideDrumsButton, _fundamentalsButton, btnH);
+    pair(_magnetButton, _grabOnClickButton, btnH);
+    pair(_alignButton, _waveButton, btnH);
+    stepper(_tuningMinus, _tuningReadout, _tuningPlus, 24);
+    full(_snap, btnH);
     _quickGrabKnob.frame = NSMakeRect(x, y, half, knobH);
-    _grabButton.frame = NSMakeRect(col2, y, half, btnH);  // Grab and Wave share the height of the Quick Grab knob
-    _waveButton.frame = NSMakeRect(col2, y + btnH + gap, half, btnH);
+    _grabButton.frame = NSMakeRect(col2, y + (knobH - btnH) / 2, half, btnH);
     y += knobH + gap;
     _recordButton.frame = NSMakeRect(x + (w - recH * 1.6) / 2, y, recH * 1.6, recH);
     y += recH + gap;
-    _resetButton.frame = NSMakeRect(x, y, half, btnH);
-    _clearButton.frame = NSMakeRect(col2, y, half, btnH);
-    y += btnH + gap;
-    _previewButton.frame = NSMakeRect(x, y, half, btnH);
-    _soloButton.frame = NSMakeRect(col2, y, half, btnH);
-    y += btnH + gap;
-    _soundKnob.frame = NSMakeRect(x, y, half, knobH);
-    _mixKnob.frame = NSMakeRect(col2, y, half, knobH);
-    y += knobH + gap;
-    _dragButton.frame = NSMakeRect(x, y, w, dragH);
-    y += dragH + gap;
-    _saveButton.frame = NSMakeRect(x, y, half, btnH);
-    _syncButton.frame = NSMakeRect(col2, y, half, btnH);
-    y += btnH + gap;
-    _keyReadout.frame = NSMakeRect(x, y, half, readH);
-    _bpmReadout.frame = NSMakeRect(col2, y, half, readH);
-    y += readH + gap;
+    pair(_resetButton, _clearButton, btnH);
+    pair(_previewButton, _soloButton, btnH);
+    pair(_soundKnob, _mixKnob, knobH);
+    full(_dragButton, dragH);
+    pair(_saveButton, _syncButton, btnH);
+    full(_samplerButton, btnH);
+    full(_samplerDragButton, btnH);
+    full(_bridgeReadout, btnH);
+    pair(_keyReadout, _bpmReadout, readH);
     _info.frame = NSMakeRect(x, y, w, MAX(40, H - y - 8));
     _infoButton.frame = NSMakeRect(leftW + kTTRPanelWidth - kPanelPad - 22, 8 + (logoH - 22) / 2, 22, 22);
     _logoView.frame = NSMakeRect(x, 8, w - 22 - kColumnGap, logoH);

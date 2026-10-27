@@ -10,28 +10,30 @@
 
 namespace ttr {
 
-constexpr int kDefaultWindowWidth = 1100, kDefaultWindowHeight = 640;
-constexpr int kMinWindowWidth = 820, kMinWindowHeight = 520, kMaxWindowSize = 8192;
+constexpr int kDefaultWindowWidth = 1100, kDefaultWindowHeight = 800;
+constexpr int kMinWindowWidth = 820, kMinWindowHeight = 650, kMaxWindowSize = 8192;
 
 struct UiSettings {
     // view parameters (not automatable host parameters)
     float gain = 0.5f, range = 0.5f, speed = 1.0f, quickGrab = 0.0f;
-    int snap = 3;
-    bool hideDrums = true, magnet = true, syncToHost = false;
+    int snap = 3;  // 1/16
+    bool hideDrums = false, magnet = false, syncToHost = false;
     // thin-line map (4.1): dim overtones, shift the grid by the detected tuning, manual trim in cent
-    bool fundamentals = true, alignToSample = true;
+    bool fundamentals = false, alignToSample = true;
     float tuningTrim = 0.0f;
     // glow map (4.2): the waveform lane above the map can be hidden
     bool showWave = true;
+    // 4.3: the full spectrogram view (false = thin lines), click-to-grab on strong lines, sampler track after Drag MIDI
+    bool isSpectrum = true, grabOnClick = false, samplerOnDrag = false;
     // window / viewport
     double scrollSec = 0.0;
     double scrollY = -1.0;  // < 0: default (around the middle of the keyboard)
     int width = kDefaultWindowWidth, height = kDefaultWindowHeight;
 
     bool operator==(const UiSettings& o) const {
-        return std::tie(gain, range, speed, quickGrab, snap, hideDrums, magnet, syncToHost, fundamentals, alignToSample, tuningTrim, showWave, scrollSec, scrollY, width, height) ==
+        return std::tie(gain, range, speed, quickGrab, snap, hideDrums, magnet, syncToHost, fundamentals, alignToSample, tuningTrim, showWave, isSpectrum, grabOnClick, samplerOnDrag, scrollSec, scrollY, width, height) ==
                std::tie(o.gain, o.range, o.speed, o.quickGrab, o.snap, o.hideDrums, o.magnet, o.syncToHost, o.fundamentals, o.alignToSample, o.tuningTrim, o.showWave,
-                        o.scrollSec, o.scrollY, o.width, o.height);
+                        o.isSpectrum, o.grabOnClick, o.samplerOnDrag, o.scrollSec, o.scrollY, o.width, o.height);
     }
 };
 

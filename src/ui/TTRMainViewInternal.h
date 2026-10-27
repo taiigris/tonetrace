@@ -20,7 +20,10 @@
     TTRKnob_v1 *_gainKnob, *_rangeKnob, *_quickGrabKnob, *_soundKnob, *_mixKnob;
     TTRButton_v1 *_speedMinus, *_speedPlus, *_hideDrumsButton, *_magnetButton, *_grabButton, *_resetButton, *_clearButton, *_previewButton, *_soloButton, *_saveButton;
     TTRButton_v1 *_waveButton, *_fundamentalsButton, *_alignButton, *_tuningMinus, *_tuningPlus;
-    TTRReadout_v1* _tuningReadout;
+    TTRReadout_v1 *_tuningReadout, *_bridgeReadout;
+    TTRButton_v1 *_spectrumButton, *_linesButton, *_grabOnClickButton, *_samplerButton, *_samplerDragButton;
+    BOOL _samplerPending, _bridgeUp;  // a request waits for Live's answer / the heartbeat is fresh
+    CFTimeInterval _bridgeChecked;
     TTRButton_v1 *_undoButton, *_redoButton, *_deleteButton, *_duplicateButton, *_infoButton, *_syncButton;
     TTRBannerView_v1* _banner;
     TTRDiagnosticsView_v1* _diag;
@@ -68,6 +71,13 @@ extern const double kTTRActiveHz, kTTRIdleHz;
 - (void)grabClicked;
 - (NSArray<NSString*>*)infoLines;
 - (NSString*)statusLineForSnapshot:(const ttr::SnapshotPtr&)snap status:(ttr::KernelStatus)status;
+@end
+
+// Live bridge: New Sampler Track, heartbeat status.
+@interface TTRMainView_v1 (Bridge)
+- (void)updateBridgeStatus;
+- (void)samplerClicked;
+- (void)sendSamplerRequest;
 @end
 
 @interface TTRMainView_v1 (Export)

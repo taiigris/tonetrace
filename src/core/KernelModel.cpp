@@ -41,6 +41,8 @@ MapView TonetraceKernel::mapView() const {
         v.lineFrames = liveLines_.frames();
         v.linePeak = liveLines_.peak();
         v.lineHold = liveLines_.hold();
+        v.fine = liveLines_.fine();
+        v.fineHold = liveLines_.holdFine();
         v.lengthSec = recordedSeconds();
         return v;
     }
@@ -64,6 +66,7 @@ MapView TonetraceKernel::mapView() const {
         v.lineFrames = lines->frames;
         v.linePeak = lines->peak;
         v.lineHold = v.snapshot->lines;
+        v.fine = lines->fine.empty() ? nullptr : lines->fine.data();
     }
     v.lengthSec = v.snapshot->lengthSec;
     return v;
@@ -189,12 +192,15 @@ int TonetraceKernel::mergeGrabbed(const SnapshotPtr& base, std::vector<NoteEvent
 }
 
 LineView TonetraceKernel::lineView() const {
-    return {lineFundamentals_.load(), lineAlign_.load(), lineTrim_.load()};
+    return {lineFundamentals_.load(), lineAlign_.load(), lineTrim_.load(), lineSpectrum_.load(), lineGrabOnClick_.load(), lineSamplerOnDrag_.load()};
 }
 
 void TonetraceKernel::setLineView(const LineView& view) {
     lineFundamentals_.store(view.fundamentals);
     lineAlign_.store(view.alignToSample);
+    lineSpectrum_.store(view.isSpectrum);
+    lineGrabOnClick_.store(view.grabOnClick);
+    lineSamplerOnDrag_.store(view.samplerOnDrag);
     lineTrim_.store(std::isfinite(view.trimCents) ? std::clamp(view.trimCents, -kMaxTrimCents, kMaxTrimCents) : 0.0f);
 }
 

@@ -45,6 +45,13 @@ struct Column { int first, last; };
 
 }  // namespace
 
+uint32_t TTRHeatColor(uint8_t shade) {
+    static const std::vector<uint32_t> ramp = makeRamp();
+    return ramp[shade];
+}
+
+uint32_t TTRDarkenColor(uint32_t color, float keep) { return darker(color, keep); }
+
 float TTRHeatShade(float energy, float reference, float gain, float range) {
     if (energy <= 0.0f || reference <= 0.0f) return 0.0f;
     const float rangeDb = kMinRangeDb + std::clamp(range, 0.0f, 1.0f) * kRangeSpanDb;
