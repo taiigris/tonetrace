@@ -209,7 +209,8 @@ IPlugView* PLUGIN_API TonetraceController::createView(FIDString name) {
     IPtr<TonetraceController> self(this);
     auto* view = new TonetraceView();
     const UiSettings ui = uiSettings();
-    view->setInitialSize(ui.width, ui.height);
+    const bool isLegacyDefault = ui.width == kLegacyWindowWidth && ui.height == kLegacyWindowHeight;  // older states stored the old default size
+    view->setInitialSize(isLegacyDefault ? kDefaultWindowWidth : ui.width, isLegacyDefault ? kDefaultWindowHeight : ui.height);
     view->setBridge(std::make_shared<ControllerBridge>(self, kernel_, [view](int w, int h) { view->resizeFromPlugin(w, h); }));
     return view;
 }

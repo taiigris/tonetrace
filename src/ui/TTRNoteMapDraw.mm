@@ -173,8 +173,8 @@ NSString* formatClock(double t) {
         if (NSMaxX(row) < 0 || row.origin.x > b.size.width || NSMaxY(row) < 0 || row.origin.y > b.size.height) continue;
         const NSRect bar = TTRNoteBarRect(row);
         const CGFloat radius = MIN(1.5, bar.size.height / 3.0);
-        TTRFillRounded(bar, radius, n.selected ? TTRHex(0xFF9F43, 0.95) : TTRHex(0x6BEBC8, 0.95));  // turquoise bar, dark rim so it stays readable on white
-        TTRStrokeRounded(bar, radius, n.selected ? TTRHex(0x8A4A10, 0.9) : TTRHex(0x0C6E5C, 0.9), 1.0);
+        TTRFillRounded(bar, radius, n.selected ? TTRHex(0xFFFFFF, 0.95) : TTRHex(0x2EE6C5, 0.95));  // turquoise bar, dark rim so it stays readable on white
+        TTRStrokeRounded(bar, radius, n.selected ? TTRHex(0x6E7378, 0.9) : TTRHex(0x0B6B5C, 0.9), 1.0);
         if (!n.selected && int(i) != hovered) continue;  // the name only shows on hover or selection, beside the bar
         NSString* name = TTRNoteName(n.pitch);
         const CGFloat w = TTRTextWidth(name, font) + 8, h = 13;
@@ -239,8 +239,8 @@ NSString* formatClock(double t) {
         NSString* badge = [NSString stringWithFormat:@"REC  %@", formatClock(_recorded)];
         const CGFloat bw = TTRTextWidth(badge, TTRMono(11, NSFontWeightBold), 1.0) + 34;
         const NSRect pill = NSMakeRect(14, 12, bw, 24);
-        TTRFillRounded(pill, 12, TTRHex(0x14161B, 0.85));
-        TTRStrokeRounded(pill, 12, TTRHex(0xFF4D5E, 0.8));
+        TTRFillRounded(pill, 6, TTRHex(0x14161B, 0.85));
+        TTRStrokeRounded(pill, 6, TTRHex(0xFF4D5E, 0.8));
         TTRFillRounded(NSMakeRect(pill.origin.x + 10, pill.origin.y + 8, 8, 8), 4, TTR_RECORD);
         TTRDrawText(badge, NSMakeRect(pill.origin.x + 24, pill.origin.y, bw - 24, 24), TTRMono(11, NSFontWeightBold), TTR_TEXT, NSTextAlignmentLeft, 1.0);
         if (_mv.frames < 2)
@@ -253,8 +253,8 @@ NSString* formatClock(double t) {
         NSString* hint = @"Click and drag on the bright lines to draw notes";
         const CGFloat w = TTRTextWidth(hint, TTRFont(12, NSFontWeightMedium)) + 32;
         const NSRect pill = NSMakeRect(round(c.x - w / 2), grid.size.height - 44, w, 28);
-        TTRFillRounded(pill, 14, TTRHex(0x14161B, 0.88));
-        TTRStrokeRounded(pill, 14, TTRHex(0x19E6A0, 0.6));
+        TTRFillRounded(pill, 6, TTRHex(0x14161B, 0.88));
+        TTRStrokeRounded(pill, 6, TTRHex(0x2EE6C5, 0.6));
         TTRDrawText(hint, pill, TTRFont(12, NSFontWeightMedium), TTR_TEXT, NSTextAlignmentCenter);
     }
 }

@@ -44,6 +44,7 @@ struct Spectrogram {
     float peak = 0.0f;            // largest value in `raw` (display reference)
     std::vector<float> raw;       // frames * kNumNotes: note energies of the full spectrum
     std::vector<float> harmonic;  // frames * kNumNotes: M_H * raw (harmonic part, "Hide drums")
+    std::vector<float> low;       // frames * 24: bass notes C1..B2 from long analysis windows (Quick Grab); not stored in states, empty after a restore
     std::vector<float> percFrac;  // frames: percussive share (spectrum not explained by H), excess over local median
     std::vector<float> flux;      // frames: positive spectral flux (onset strength), excess over local median
     float rawAt(int f, int n) const { return raw[size_t(f) * kNumNotes + n]; }

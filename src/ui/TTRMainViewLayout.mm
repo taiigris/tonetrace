@@ -1,70 +1,111 @@
-// Layout and drawing of the main view: waveform lane + map + piano on the left, a compact column of controls on the right.
+// Layout and drawing of the main view (1280 x 720 by default, 1024 x 600 at the minimum): a 48 pt header across the top,
+// piano + big map (with a compact waveform lane above it) on the left and a 200 pt column of controls on the right.
+// Everything sits on an 8 pt grid; the options popover floats below the header.
 #import "ui/TTRMainViewInternal.h"
 #import "ui/TTRTheme.h"
 
-static const CGFloat kCompactHeight = 650, kRelaxedHeight = 800;  // the panel scales between these window heights
-static const CGFloat kPanelPad = 10, kColumnGap = 6;
-
-static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(compact + (relaxed - compact) * t); }
+static const CGFloat kGrid = 8, kPad = 16, kButtonH = 32, kSmallH = 24, kKnobH = 64, kRecordH = 80, kDragH = 40, kInfoMinH = 56, kInfoMaxH = 72;
+static const CGFloat kSliderH = 48, kGrabW = 48, kStepW = 32, kIconW = 32, kSnapW = 104, kLogoW = 168;
+static const CGFloat kOptionsW = 288, kOptionsRowH = 28, kOptionsPad = 16;
 
 @implementation TTRMainView_v1 (Layout)
+
+- (void)layoutHeader:(CGFloat)W {
+    const CGFloat y = (kTTRHeaderHeight - kIconW) / 2;
+    CGFloat x = W - kPad - kIconW;
+    _infoButton.frame = NSMakeRect(x, y, kIconW, kIconW);
+    x -= kGrid + kIconW;
+    _optionsButton.frame = NSMakeRect(x, y, kIconW, kIconW);
+    x -= kGrid + kIconW;
+    _viewButton.frame = NSMakeRect(x, y, kIconW, kIconW);
+    x -= kGrid + kSnapW;
+    _snap.frame = NSMakeRect(x, y, kSnapW, kIconW);
+    x -= kGrid + kIconW;
+    _helpButton.frame = NSMakeRect(x, y, kIconW, kIconW);
+    _logoView.frame = NSMakeRect(kPad, y, kLogoW, kIconW);
+    _headerClip = NSMakeRect(kPad + kLogoW + kPad, 0, MAX(0.0, x - kPad - (kPad + kLogoW + kPad)), kTTRHeaderHeight);
+}
+
+// Right column: knobs, speed, quick grab, record, reset / preview from the top; the highlighted Drag MIDI and the small actions from the bottom.
+- (void)layoutSidebar:(CGFloat)W height:(CGFloat)H {
+    const CGFloat x = W - kTTRPanelWidth + kPad, w = kTTRPanelWidth - 2 * kPad, half = (w - kGrid) / 2;
+    CGFloat y = kTTRHeaderHeight + kPad;
+    _gainKnob.frame = NSMakeRect(x, y, half, kKnobH);
+    _rangeKnob.frame = NSMakeRect(x + half + kGrid, y, half, kKnobH);
+    y += kKnobH + kGrid;
+    _speedMinus.frame = NSMakeRect(x, y, kStepW, kButtonH);
+    _speedReadout.frame = NSMakeRect(x + kStepW + kGrid, y, w - 2 * (kStepW + kGrid), kButtonH);
+    _speedPlus.frame = NSMakeRect(x + w - kStepW, y, kStepW, kButtonH);
+    y += kButtonH + kGrid;
+    _quickGrabSlider.frame = NSMakeRect(x, y, w - kGrabW - kGrid, kSliderH);
+    _grabButton.frame = NSMakeRect(x + w - kGrabW, y + kSliderH - kButtonH, kGrabW, kButtonH);
+    y += kSliderH + kGrid;
+    _recordButton.frame = NSMakeRect(x, y, w, kRecordH);
+    y += kRecordH + kGrid;
+    _resetButton.frame = NSMakeRect(x, y, half, kButtonH);
+    _previewButton.frame = NSMakeRect(x + half + kGrid, y, half, kButtonH);
+    y += kButtonH + kGrid;
+
+    CGFloat bottom = H - kPad;  // bottom group, built upwards
+    auto upward = [&](NSView* v, CGFloat h, CGFloat gap) { bottom -= h; v.frame = NSMakeRect(x, bottom, w, h); bottom -= gap; };
+    _undoButton.frame = NSMakeRect(x, bottom - kSmallH, half, kSmallH);
+    _redoButton.frame = NSMakeRect(x + half + kGrid, bottom - kSmallH, half, kSmallH);
+    bottom -= kSmallH + 4;
+    upward(_samplerButton, kSmallH, 4);
+    upward(_saveButton, kSmallH, kGrid);
+    upward(_dragButton, kDragH, kGrid);
+    const CGFloat free = bottom - y;
+    const CGFloat infoH = MIN(kInfoMaxH, MAX(0.0, free));
+    _info.frame = NSMakeRect(x, y, w, infoH);
+    _info.hidden = infoH < kInfoMinH;
+}
+
+// The options popover: below the header, right-aligned. Returns nothing; subviews live in its own coordinates.
+- (void)layoutOptions:(CGFloat)W {
+    const CGFloat w = kOptionsW - 2 * kOptionsPad, half = (w - kGrid) / 2, third = (w - 2 * kGrid) / 3;
+    CGFloat y = kOptionsPad;
+    auto pair = [&](NSView* l, NSView* r) { l.frame = NSMakeRect(kOptionsPad, y, half, kOptionsRowH); r.frame = NSMakeRect(kOptionsPad + half + kGrid, y, half, kOptionsRowH); y += kOptionsRowH + kGrid; };
+    pair(_hideDrumsButton, _fundamentalsButton);
+    pair(_magnetButton, _grabOnClickButton);
+    pair(_alignButton, _waveButton);
+    pair(_syncButton, _samplerDragButton);
+    _tuningMinus.frame = NSMakeRect(kOptionsPad, y, kOptionsRowH, kOptionsRowH);
+    _tuningReadout.frame = NSMakeRect(kOptionsPad + kOptionsRowH + kGrid, y, w - 2 * (kOptionsRowH + kGrid), kOptionsRowH);
+    _tuningPlus.frame = NSMakeRect(kOptionsPad + w - kOptionsRowH, y, kOptionsRowH, kOptionsRowH);
+    y += kOptionsRowH + kGrid;
+    _soundKnob.frame = NSMakeRect(kOptionsPad, y, third, kKnobH);
+    _mixKnob.frame = NSMakeRect(kOptionsPad + third + kGrid, y, third, kKnobH);
+    _soloButton.frame = NSMakeRect(kOptionsPad + 2 * (third + kGrid), y + (kKnobH - kOptionsRowH) / 2, third, kOptionsRowH);
+    y += kKnobH + kGrid;
+    _clearButton.frame = NSMakeRect(kOptionsPad, y, third, kOptionsRowH);
+    _deleteButton.frame = NSMakeRect(kOptionsPad + third + kGrid, y, third, kOptionsRowH);
+    _duplicateButton.frame = NSMakeRect(kOptionsPad + 2 * (third + kGrid), y, third, kOptionsRowH);
+    y += kOptionsRowH + kGrid;
+    _bridgeReadout.frame = NSMakeRect(kOptionsPad, y, w, kOptionsRowH);
+    y += kOptionsRowH + kOptionsPad;
+    _options.frame = NSMakeRect(W - kPad - kOptionsW, kTTRHeaderHeight + 4, kOptionsW, y);
+}
 
 - (void)layoutControls {
     const CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
     const CGFloat leftW = W - kTTRPanelWidth;
-    const CGFloat t = MIN(1.0, MAX(0.0, (H - kCompactHeight) / (kRelaxedHeight - kCompactHeight)));
+    [self layoutHeader:W];
 
-    // left: lane, map, scroll bar, piano
+    // left: waveform lane + ruler, map, scroll bar, piano
     const CGFloat laneH = _showWave ? kTTRWaveLaneHeight : 0, waveH = kTTRRulerHeight + laneH;
     const CGFloat mapX = kTTRMargin + kTTRPianoWidth, mapW = MAX(60, leftW - mapX - kTTRMargin);
-    const CGFloat mapY = kTTRMargin + waveH + 4;
-    const CGFloat scrollY = H - kTTRStatusHeight - kTTRScrollHeight - 5;
-    _wave.frame = NSMakeRect(mapX, kTTRMargin, mapW, waveH);
+    const CGFloat waveY = kTTRHeaderHeight + kGrid, mapY = waveY + waveH + 4;
+    const CGFloat scrollY = H - kGrid - kTTRScrollHeight;
+    _wave.frame = NSMakeRect(mapX, waveY, mapW, waveH);
     _map.frame = NSMakeRect(mapX, mapY, mapW, MAX(60, scrollY - 4 - mapY));
     _piano.frame = NSMakeRect(kTTRMargin, mapY, kTTRPianoWidth, _map.frame.size.height);
     _scroll.frame = NSMakeRect(mapX, scrollY, mapW, kTTRScrollHeight);
-
-    // right panel, top to bottom
-    const CGFloat x = leftW + kPanelPad, w = kTTRPanelWidth - 2 * kPanelPad, half = floor((w - kColumnGap) / 2), gap = lerp(2, 4, t);
-    const CGFloat logoH = lerp(30, 38, t), knobH = lerp(42, 52, t), btnH = lerp(20, 24, t), recH = lerp(40, 52, t), dragH = lerp(24, 32, t), readH = lerp(34, 36, t);
-    CGFloat y = 8 + logoH + gap;
-    const CGFloat col2 = x + half + kColumnGap;
-
-    // each helper places one row and moves y down
-    auto pair = [&](NSView* left, NSView* right, CGFloat h) { left.frame = NSMakeRect(x, y, half, h); right.frame = NSMakeRect(col2, y, half, h); y += h + gap; };
-    auto full = [&](NSView* v, CGFloat h) { v.frame = NSMakeRect(x, y, w, h); y += h + gap; };
-    auto stepper = [&](NSView* minus, NSView* readout, NSView* plus, CGFloat stepW) {
-        minus.frame = NSMakeRect(x, y, stepW, btnH);
-        readout.frame = NSMakeRect(x + stepW + 3, y, w - 2 * (stepW + 3), btnH);
-        plus.frame = NSMakeRect(x + w - stepW, y, stepW, btnH);
-        y += btnH + gap;
-    };
-    pair(_gainKnob, _rangeKnob, knobH);
-    stepper(_speedMinus, _speedReadout, _speedPlus, 28);
-    pair(_spectrumButton, _linesButton, btnH);
-    pair(_hideDrumsButton, _fundamentalsButton, btnH);
-    pair(_magnetButton, _grabOnClickButton, btnH);
-    pair(_alignButton, _waveButton, btnH);
-    stepper(_tuningMinus, _tuningReadout, _tuningPlus, 24);
-    full(_snap, btnH);
-    _quickGrabKnob.frame = NSMakeRect(x, y, half, knobH);
-    _grabButton.frame = NSMakeRect(col2, y + (knobH - btnH) / 2, half, btnH);
-    y += knobH + gap;
-    _recordButton.frame = NSMakeRect(x + (w - recH * 1.6) / 2, y, recH * 1.6, recH);
-    y += recH + gap;
-    pair(_resetButton, _clearButton, btnH);
-    pair(_previewButton, _soloButton, btnH);
-    pair(_soundKnob, _mixKnob, knobH);
-    full(_dragButton, dragH);
-    pair(_saveButton, _syncButton, btnH);
-    full(_samplerButton, btnH);
-    full(_samplerDragButton, btnH);
-    full(_bridgeReadout, btnH);
-    pair(_keyReadout, _bpmReadout, readH);
-    _info.frame = NSMakeRect(x, y, w, MAX(40, H - y - 8));
-    _infoButton.frame = NSMakeRect(leftW + kTTRPanelWidth - kPanelPad - 22, 8 + (logoH - 22) / 2, 22, 22);
-    _logoView.frame = NSMakeRect(x, 8, w - 22 - kColumnGap, logoH);
-    [self layoutStatusButtons];
+    [self layoutSidebar:W height:H];
+    [self layoutOptions:W];
+    _banner.frame = NSMakeRect(mapX + kGrid, mapY + kGrid, MAX(60, mapW - 2 * kGrid), 40);
+    _diag.frame = NSMakeRect(0, kTTRHeaderHeight, leftW, H - kTTRHeaderHeight);
+    _about.frame = self.bounds;
+    [self applyFitToView];
 }
 
 // ------------------------------------------------------------ drawing
@@ -75,17 +116,32 @@ static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(
     [TTR_BG setFill];
     NSRectFill(b);
     [TTR_PANEL setFill];
-    NSRectFill(NSMakeRect(leftW, 0, kTTRPanelWidth, b.size.height));
+    NSRectFill(NSMakeRect(leftW, kTTRHeaderHeight, kTTRPanelWidth, b.size.height - kTTRHeaderHeight));
+    NSRectFill(NSMakeRect(0, 0, b.size.width, kTTRHeaderHeight));
     [TTR_BORDER setFill];
-    NSRectFill(NSMakeRect(leftW, 0, 1, b.size.height));
+    NSRectFill(NSMakeRect(0, kTTRHeaderHeight - 1, b.size.width, 1));
+    NSRectFill(NSMakeRect(leftW, kTTRHeaderHeight, 1, b.size.height - kTTRHeaderHeight));
+    [self drawHeaderText];
+}
 
-    // status line
-    const NSRect status = NSMakeRect(0, b.size.height - kTTRStatusHeight, leftW, kTTRStatusHeight);
-    [TTRHex(0x0F1115) setFill];
-    NSRectFill(status);
-    [TTR_BORDER setFill];
-    NSRectFill(NSMakeRect(0, status.origin.y, leftW, 1));
-    [self drawStatusBar:status];
+// Centre of the header: the status (key, BPM, tuning, notes) and below it a dim one-line hint (hover help, messages, progress).
+- (void)drawHeaderText {
+    const NSRect c = _headerClip;
+    if (c.size.width < 40) return;
+    NSMutableParagraphStyle* style = [[NSMutableParagraphStyle alloc] init];
+    style.lineBreakMode = NSLineBreakByTruncatingTail;
+    style.alignment = NSTextAlignmentCenter;
+    const BOOL isMessage = _transientMessage && CACurrentMediaTime() < _transientUntil;
+    NSFont *statusFont = TTRFont(13, NSFontWeightSemibold), *hintFont = TTRFont(11);
+    NSMutableDictionary* status = [TTRTextAttrs(statusFont, TTR_TEXT) mutableCopy];
+    NSMutableDictionary* hint = [TTRTextAttrs(hintFont, isMessage ? TTR_TEXT : TTR_DIM) mutableCopy];
+    status[NSParagraphStyleAttributeName] = style;
+    hint[NSParagraphStyleAttributeName] = style;
+    const CGFloat hintH = ceil(hintFont.ascender - hintFont.descender), statusH = ceil(statusFont.ascender - statusFont.descender);
+    const BOOL hasHint = _statusText.length > 0;
+    const CGFloat top = hasHint ? 7 : floor((kTTRHeaderHeight - statusH) / 2);
+    [_headerText ?: @"" drawInRect:NSMakeRect(c.origin.x, top, c.size.width, statusH) withAttributes:status];
+    if (hasHint) [_statusText drawInRect:NSMakeRect(c.origin.x, top + statusH + 2, c.size.width, hintH) withAttributes:hint];
 }
 
 @end

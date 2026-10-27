@@ -6,16 +6,22 @@ static inline NSColor* TTRHex(uint32_t rgb, CGFloat alpha = 1.0) {
     return [NSColor colorWithSRGBRed:((rgb >> 16) & 0xFF) / 255.0 green:((rgb >> 8) & 0xFF) / 255.0 blue:(rgb & 0xFF) / 255.0 alpha:alpha];
 }
 
-#define TTR_BG TTRHex(0x121418)
-#define TTR_PANEL TTRHex(0x1B1F26)
-#define TTR_PANEL_RAISED TTRHex(0x252B35)
-#define TTR_BORDER TTRHex(0x2C333E)
+// One neutral grey palette and a single accent (turquoise); red only while recording, white marks a selection.
+#define TTR_BG TTRHex(0x111214)
+#define TTR_PANEL TTRHex(0x1A1C1F)
+#define TTR_PANEL_RAISED TTRHex(0x212428)
+#define TTR_HOVER TTRHex(0x2A2D31)
+#define TTR_BORDER TTRHex(0x2A2D31)
 #define TTR_ACCENT TTRHex(0x2EE6C5)
-#define TTR_SELECT TTRHex(0xFF9F43)
+#define TTR_ACCENT_TINT TTRHex(0x2EE6C5, 0.16)
+#define TTR_ON_ACCENT TTRHex(0x0A1411)
+#define TTR_SELECT TTRHex(0xFFFFFF)
 #define TTR_RECORD TTRHex(0xFF4D5E)
-#define TTR_NOTE TTRHex(0x19E6A0)
-#define TTR_TEXT TTRHex(0xE6E9EF)
-#define TTR_DIM TTRHex(0x8A93A3)
+#define TTR_NOTE TTRHex(0x2EE6C5)
+#define TTR_TEXT TTRHex(0xE7E9EC)
+#define TTR_DIM TTRHex(0x8B9099)
+
+constexpr CGFloat kTTRRadius = 6.0;  // every flat control
 
 static inline NSFont* TTRFont(CGFloat size, NSFontWeight weight = NSFontWeightRegular) {
     return [NSFont systemFontOfSize:size weight:weight];

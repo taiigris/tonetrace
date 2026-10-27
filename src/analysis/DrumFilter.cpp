@@ -69,6 +69,17 @@ std::vector<float> gatedHarmonicEnergies(const Spectrogram& spec, float drumFilt
     return out;
 }
 
+std::vector<char> percussiveFrames(const Spectrogram& spec, float drumFilter, double beforeSec, double afterSec) {
+    const float d = std::min(1.0f, std::max(0.0f, drumFilter));
+    const int before = int(std::ceil(beforeSec / spec.hopSec)), after = int(std::ceil(afterSec / spec.hopSec));
+    std::vector<char> flags(size_t(spec.frames), 0);
+    for (int f = 0; f < spec.frames; ++f) {
+        if (onsetStrength(spec, f, d) < kGateOnsetMin) continue;
+        for (int g = std::max(0, f - before); g <= std::min(spec.frames - 1, f + after); ++g) flags[size_t(g)] = 1;
+    }
+    return flags;
+}
+
 void annotateSegment(const Spectrogram& spec, NoteSegment* seg) {
     double tonal = 0.0, first = 0.0, second = 0.0;
     const int mid = (seg->first + seg->last + 1) / 2;

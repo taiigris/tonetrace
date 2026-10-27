@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "analysis/Hpss.h"
+#include "analysis/LowBand.h"
 #include "analysis/PooledBins.h"
 #include "analysis/SpectralFrames.h"
 
@@ -38,6 +39,7 @@ std::shared_ptr<Spectrogram> computeSpectrogram(const float* mono, size_t count,
             const float mask = std::max(m[bin[size_t(n)].first], m[bin[size_t(n)].second]);
             spec->harmonic[i] = raw[i] * mask;
         }
+    spec->low = computeLowEnergies(sig.samples.data(), long(sig.samples.size()), sig.sampleRate, frames, kHopSize);
     spec->raw = std::move(raw);
     spec->percFrac = std::move(hpss.percFrac);
     spec->flux = std::move(hpss.flux);

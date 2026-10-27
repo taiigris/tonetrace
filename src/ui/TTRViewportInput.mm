@@ -1,6 +1,6 @@
 #import "ui/TTRViewportInput.h"
 
-const double kTTRMinRowHeight = 8.0, kTTRMaxRowHeight = 28.0;
+const double kTTRMinRowHeight = 3.5, kTTRMaxRowHeight = 28.0;
 
 static const double kPreciseZoomPerPoint = 0.01, kWheelZoomPerLine = 0.08, kWheelLinePoints = 12.0, kEndMarginSec = 2.0;
 

@@ -25,6 +25,14 @@ struct NoteSegment {
 // With `control` the computation reports its progress and returns null when cancelled.
 std::shared_ptr<Salience> computeSalience(const Spectrogram& spectrogram, const FilterSettings& filter, TaskControl* control = nullptr);
 
+// Greedy fundamentals per frame with harmonic cancellation (frames * kNumNotes amplitudes, residual after the lower notes' partials
+// are subtracted); no normalisation. Null when silent or cancelled.
+struct PickOptions {
+    float subtractGain = 0.85f;   // share of the predicted overtone (1/h of the fundamental) that is subtracted
+    float explainFactor = 0.0f;   // an overtone bin at most this many times the prediction is taken as fully explained
+};
+std::vector<float> pickFundamentals(const std::vector<float>& energies, int frames, TaskControl* control = nullptr, const PickOptions& options = {});
+
 // Notes from the strongest lines of the salience (Quick Grab). With filter.hideDrums the segment filter
 // (tonality / sustain / glide) drops drum hits.
 std::vector<NoteEvent> extractNotes(const Salience& salience, float sensitivity, const Spectrogram& spectrogram,

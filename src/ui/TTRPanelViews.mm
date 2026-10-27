@@ -8,7 +8,6 @@
 
 // ============================================================ TTRRecordButton_v1
 
-static const double kPulseHz = 1.3;
 
 @implementation TTRRecordButton_v1 {
     BOOL _hover, _pressed;
@@ -48,26 +47,22 @@ static const double kPulseHz = 1.3;
 
 - (void)drawRect:(NSRect)dirty {
     const NSRect b = self.bounds;
-    const CGFloat d = MIN(b.size.width, b.size.height) - 8, cx = b.size.width / 2, cy = b.size.height / 2;
+    const CGFloat labelH = 16, d = MIN(b.size.width, b.size.height - labelH) - 4, cx = b.size.width / 2, cy = (b.size.height - labelH) / 2;
     CGContextRef ctx = [NSGraphicsContext currentContext].CGContext;
     CGContextSetAlpha(ctx, _isEnabled ? 1.0 : 0.4);
-    if (_isOn) {  // pulsing halo
-        const double pulse = 0.5 + 0.5 * sin(CACurrentMediaTime() * 2.0 * M_PI * kPulseHz);
-        const CGFloat halo = d / 2 + 2 + 3 * pulse;
-        TTRFillRounded(NSMakeRect(cx - halo, cy - halo, 2 * halo, 2 * halo), halo, TTRHex(0xFF4D5E, 0.12 + 0.22 * pulse));
-    }
     const NSRect disc = NSMakeRect(cx - d / 2, cy - d / 2, d, d);
-    NSColor* fill = _isOn ? TTR_RECORD : (_hover ? TTRHex(0x2F3744) : TTR_PANEL_RAISED);
-    if (_pressed) fill = [fill blendedColorWithFraction:0.25 ofColor:[NSColor blackColor]];
+    NSColor* fill = _isOn ? TTR_RECORD : (_hover ? TTR_HOVER : TTR_PANEL_RAISED);  // red only while recording
+    if (_pressed) fill = [fill blendedColorWithFraction:0.2 ofColor:[NSColor blackColor]];
     TTRFillRounded(disc, d / 2, fill);
-    TTRStrokeRounded(disc, d / 2, _isOn ? TTRHex(0xFF9AA4) : TTR_BORDER, 1.5);
+    TTRStrokeRounded(disc, d / 2, _isOn ? TTR_RECORD : TTR_BORDER, 1.0);
     if (_isOn) {
         const CGFloat s = d * 0.30;  // stop square
-        TTRFillRounded(NSMakeRect(cx - s / 2, cy - s / 2, s, s), 3, [NSColor whiteColor]);
+        TTRFillRounded(NSMakeRect(cx - s / 2, cy - s / 2, s, s), 2, [NSColor whiteColor]);
     } else {
-        const CGFloat s = d * 0.42;
-        TTRFillRounded(NSMakeRect(cx - s / 2, cy - s / 2, s, s), s / 2, TTR_RECORD);
+        const CGFloat s = d * 0.36;
+        TTRFillRounded(NSMakeRect(cx - s / 2, cy - s / 2, s, s), s / 2, TTR_TEXT);
     }
+    TTRDrawText(@"RECORD", NSMakeRect(0, b.size.height - labelH, b.size.width, labelH), TTRFont(11, NSFontWeightSemibold), _isOn ? TTR_TEXT : TTR_DIM, NSTextAlignmentCenter, 0.6);
 }
 
 @end
@@ -92,8 +87,8 @@ static const double kPulseHz = 1.3;
 
 - (void)drawRect:(NSRect)dirty {
     const NSRect b = self.bounds;
-    TTRFillRounded(b, 7, TTR_BG);
-    TTRStrokeRounded(b, 7, TTR_BORDER);
+    TTRFillRounded(b, kTTRRadius, TTR_BG);
+    TTRStrokeRounded(b, kTTRRadius, TTR_BORDER);
     const NSUInteger count = std::max<NSUInteger>(1, _lines.count);
     const CGFloat lineH = MIN(16.0, (b.size.height - 8) / count), top = (b.size.height - lineH * count) / 2;
     for (NSUInteger i = 0; i < _lines.count; ++i)
@@ -161,9 +156,9 @@ static const CGFloat kMinThumb = 24.0;
 
 - (void)drawRect:(NSRect)dirty {
     const NSRect b = self.bounds;
-    TTRFillRounded(b, b.size.height / 2, TTRHex(0x0F1115));
+    TTRFillRounded(b, b.size.height / 2, TTR_BG);
     if (_visibleLength >= _contentLength) return;  // everything visible: only the track
-    TTRFillRounded([self thumbRect], (b.size.height - 4) / 2, _dragging ? TTR_ACCENT : TTRHex(0x3A4352));
+    TTRFillRounded([self thumbRect], (b.size.height - 4) / 2, _dragging ? TTR_ACCENT : TTRHex(0x3A3E44));
 }
 
 @end

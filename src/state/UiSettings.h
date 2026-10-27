@@ -10,8 +10,9 @@
 
 namespace ttr {
 
-constexpr int kDefaultWindowWidth = 1100, kDefaultWindowHeight = 800;
-constexpr int kMinWindowWidth = 820, kMinWindowHeight = 650, kMaxWindowSize = 8192;
+constexpr int kDefaultWindowWidth = 1280, kDefaultWindowHeight = 720;  // 16:9 since 4.4 (4.3 and older: 1100 x 800)
+constexpr int kLegacyWindowWidth = 1100, kLegacyWindowHeight = 800;      // the old default: stored by every older editor, so it is treated as "never resized"
+constexpr int kMinWindowWidth = 1024, kMinWindowHeight = 600, kMaxWindowSize = 8192;
 
 struct UiSettings {
     // view parameters (not automatable host parameters)

@@ -11,6 +11,7 @@
 #import "ui/TTRAbout.h"
 #import "ui/TTRControls.h"
 #import "ui/TTRMainView.h"
+#import "ui/TTRMainViewInternal.h"
 #import "ui/TTRNoteMapView.h"
 #import "ui/TTROverlays.h"
 #import "ui/TTRWaveformView.h"
@@ -31,6 +32,35 @@ void check(bool ok, const char* what) {
 }
 
 bool onGrid(double t) { return std::fabs(t / kGridStep - std::round(t / kGridStep)) < 1e-6; }
+
+void collectButtons(NSView* root, NSMutableArray<TTRButton_v1*>* out) {
+    for (NSView* v in root.subviews) {
+        if ([v isKindOfClass:TTRButton_v1.class]) [out addObject:(TTRButton_v1*)v];
+        collectButtons(v, out);
+    }
+}
+
+// Layout check: every visible control lies completely inside `container` and no two visible siblings overlap (touching edges are fine).
+// The map area, the lane and the piano are checked like every other subview.
+int layoutProblems(NSView* container, const char* where) {
+    int problems = 0;
+    NSMutableArray<NSView*>* visible = [NSMutableArray array];
+    for (NSView* v in container.subviews) if (!v.hidden) [visible addObject:v];
+    for (NSUInteger i = 0; i < visible.count; ++i) {
+        const NSRect a = visible[i].frame;
+        if (!NSContainsRect(container.bounds, a)) {
+            printf("     %s: %s %s lies outside the window\n", where, NSStringFromClass(visible[i].class).UTF8String, NSStringFromRect(a).UTF8String);
+            ++problems;
+        }
+        for (NSUInteger j = i + 1; j < visible.count; ++j)
+            if (NSIntersectsRect(a, visible[j].frame)) {
+                printf("     %s: %s %s overlaps %s %s\n", where, NSStringFromClass(visible[i].class).UTF8String, NSStringFromRect(a).UTF8String,
+                       NSStringFromClass(visible[j].class).UTF8String, NSStringFromRect(visible[j].frame).UTF8String);
+                ++problems;
+            }
+    }
+    return problems;
+}
 
 // Left drag from `from` to `to` in `steps` events.
 void drag(NSView* view, NSPoint from, NSPoint to, NSEventModifierFlags flags = 0, int steps = 8) {
@@ -57,6 +87,7 @@ int main() {
         TTRMainView_v1* view = [[TTRMainView_v1 alloc] initWithBridge:std::make_shared<DirectHostBridge>(kernel)];
         NSWindow* window = hostWindow(view, kTTRDefaultSize);
         (void)window;
+        view->_fitZoom = NO;  // the drawing below is placed with 100 px per second
         check(tk::record(*kernel, signal), "recorded and analysed (spectrogram and peaks present)");
         [view refreshNow];
         TTRNoteMapView_v1* map = (TTRNoteMapView_v1*)find(view, TTRNoteMapView_v1.class);
@@ -189,7 +220,8 @@ int main() {
         printf("7. Panel buttons, diagnostics, banner, sync\n");
         kernel->setNotes(withAllSelected(kernel->snapshot()->notes, false));
         [view refreshNow];
-        NSArray<TTRButton_v1*>* buttons = [[view subviews] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(id v, id) { return [v isKindOfClass:TTRButton_v1.class]; }]];
+        NSMutableArray<TTRButton_v1*>* buttons = [NSMutableArray array];
+        collectButtons(view, buttons);  // the options popover holds Sync, Delete and Duplicate
         auto buttonNamed = [&](NSString* title) -> TTRButton_v1* { for (TTRButton_v1* b in buttons) if ([b.title isEqualToString:title]) return b; return nil; };
         TTRButton_v1 *undoB = buttonNamed(@"Undo"), *redoB = buttonNamed(@"Redo"), *deleteB = buttonNamed(@"Delete"), *dupB = buttonNamed(@"Duplicate");
         TTRButton_v1 *infoB = buttonNamed(@"ⓘ"), *syncB = buttonNamed(@"Sync");
@@ -311,6 +343,32 @@ int main() {
         drag(map, [map pointForTime:1.2 pitch:76], [map pointForTime:1.9 pitch:76], NSEventModifierFlagOption);
         check(kernel->snapshot()->notes.size() == 2, "Alt draws without snap");
         kernel->editNotes({});
+
+        printf("9. Layout at 1280 x 720 and 1024 x 600, options popover, fit zoom\n");
+        view->_fitZoom = YES;
+        kernel->editNotes({});
+        check(NSEqualSizes(kTTRDefaultSize, NSMakeSize(1280, 720)) && NSEqualSizes(kTTRMinimumSize, NSMakeSize(1024, 600)), "default size 1280 x 720, minimum 1024 x 600");
+        TTRPopoverView_v1* options = (TTRPopoverView_v1*)find(view, TTRPopoverView_v1.class);
+        check(options && options.hidden, "the options popover starts closed");
+        for (const NSSize size : {kTTRDefaultSize, kTTRMinimumSize}) {
+            window.contentView = nil;
+            window = hostWindow(view, size);
+            [view refreshNow];
+            const std::string name = std::to_string(int(size.width)) + " x " + std::to_string(int(size.height));
+            check(layoutProblems(view, name.c_str()) == 0, ("at " + name + " every control lies inside the window and nothing overlaps").c_str());
+            check(!NSIntersectsRect(map.frame, dragButton.frame) && NSMaxX(map.frame) <= NSWidth(view.bounds) - kTTRPanelWidth, "the map stays left of the side column");
+            [view toggleOptions];
+            [view refreshNow];
+            check(!options.hidden && layoutProblems(options, "options") == 0 && NSContainsRect(view.bounds, options.frame),
+                  ("at " + name + " the options popover opens inside the window with non-overlapping controls").c_str());
+            [view toggleOptions];
+            check(options.hidden, "the popover closes again");
+            check(std::fabs(view->_vp->pxPerSec * view->_vp->contentSec - map.bounds.size.width) < 1.0, "Fit: the whole recording fills the map width");
+            check(std::fabs(view->_vp->rowH * ttr::kNumNotes - map.bounds.size.height) < 1.0, "the whole keyboard fills the map height (no vertical scrolling)");
+        }
+        [view stepSpeed:1];
+        check(!view->_fitZoom && view->_vp->pxPerSec >= 100.0, "Speed + leaves Fit and zooms in from there");
+        view->_fitZoom = NO;
 
         [view shutdown];
         kernel->deactivate();

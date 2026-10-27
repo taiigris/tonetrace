@@ -264,7 +264,7 @@ void benchMemory() {
 }
 
 void benchEditor() {
-    line("\n## Editor (1100 x 800, 120 s recording)\n");
+    line("\n## Editor (1280 x 720, 120 s recording)\n");
     auto kernel = std::make_shared<TonetraceKernel>();
     kernel->prepare(44100.0, 512);
     kernel->setHostTransport(120.0, 0.0);
@@ -366,7 +366,7 @@ void benchEditor() {
     line("- while recording 10 s (refresh + whole-window draw of a growing map every 0.5 s): median %.2f ms, slowest %.2f ms (the first frame after Record, when every tile is cold)", liveMedian, liveWorst);
 
     line("\n| Target | measured | limit | |\n|---|---|---|---|");
-    target(scroll < kFrameTargetMs, "Frame time, 1100x800 with 120 s recording (cached tiles)", scroll, "ms", kFrameTargetMs);
+    target(scroll < kFrameTargetMs, "Frame time, 1280x720 with 120 s recording (cached tiles)", scroll, "ms", kFrameTargetMs);
     target(liveMedian < kFrameTargetMs, "Frame time while recording (median)", liveMedian, "ms", kFrameTargetMs);
     target(idlePct < kIdleUiTargetPct, "Editor idle CPU", idlePct, "%", kIdleUiTargetPct);
     [view shutdown];

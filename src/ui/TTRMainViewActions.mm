@@ -10,7 +10,7 @@ static const double kSpeedSteps[] = {0.25, 0.5, 1.0, 2.0, 4.0, 8.0};
 
 - (void)toggleRecord {
     const BOOL on = _kernel->param(ttr::kParamRecord) >= 0.5f;
-    if (!on) [self editParam:ttr::kParamPreview value:0.0f];  // never preview while capturing
+    if (!on) { [self editParam:ttr::kParamPreview value:0.0f]; _fitZoom = YES; }  // never preview while capturing; the next recording is fitted again
     [self editParam:ttr::kParamRecord value:on ? 0.0f : 1.0f];
     [self refreshNow];
 }
@@ -21,14 +21,15 @@ static const double kSpeedSteps[] = {0.25, 0.5, 1.0, 2.0, 4.0, 8.0};
     [self refreshNow];
 }
 
-// Next / previous entry of the speed ladder (1x = 100 px per second).
+// Next / previous entry of the speed ladder (1x = 100 px per second), counted from the current zoom (also from "Fit").
 - (void)stepSpeed:(int)direction {
-    const double current = _kernel->param(ttr::kParamSpeed);
+    const double current = _vp->pxPerSec / ttr::kBasePixelsPerSecond;
     double target = current;
     if (direction > 0) { for (double s : kSpeedSteps) if (s > current * 1.001) { target = s; break; } }
     else { for (int i = int(sizeof kSpeedSteps / sizeof kSpeedSteps[0]) - 1; i >= 0; --i) if (kSpeedSteps[i] < current * 0.999) { target = kSpeedSteps[i]; break; } }
     if (target == current) return;
     const double anchorSec = _vp->timeForX(_map.bounds.size.width / 2);  // zoom around the middle of the map
+    _fitZoom = NO;
     [self editParam:ttr::kParamSpeed value:float(target)];
     _vp->pxPerSec = ttr::kBasePixelsPerSecond * target;
     _vp->scrollSec = anchorSec - _map.bounds.size.width / 2 / _vp->pxPerSec;
@@ -37,6 +38,7 @@ static const double kSpeedSteps[] = {0.25, 0.5, 1.0, 2.0, 4.0, 8.0};
 
 - (void)performReset {
     _kernel->resetAll();
+    _fitZoom = YES;
     _vp->scrollSec = 0.0;
     [self showMessage:@"Recording and notes cleared - Undo brings them back"];
     [self refreshNow];
@@ -131,12 +133,12 @@ static const float kTuningStepCents = 5.0f;
     if (status == ttr::KernelStatus::Analysing) return @"Analysing…";
     if (_hoverHelp.length > 0) return _hoverHelp;
     const int notes = snap ? int(snap->notes.size()) : 0;
-    if (!snap || (!snap->hasRecording() && notes == 0)) return @"Press the red button, then play your sample in your DAW";
-    NSMutableString* s = [NSMutableString stringWithFormat:@"%d notes · %d selected · Snap %s · Magnet %s", notes, snap ? ttr::selectedCount(snap->notes) : 0,
-                                                           ttr::snapName(int(_kernel->param(ttr::kParamSnap))), _kernel->param(ttr::kParamMagnet) >= 0.5f ? "on" : "off"];
-    if (snap && snap->lines && snap->lines->hasTuning() && _kernel->lineView().alignToSample) [s appendFormat:@" · Tuning %@", [self tuningText]];
-    if (_kernel->previewing()) [s appendString:@" · Preview"];
-    if (snap && snap->hasRecording() && !snap->audio) [s appendString:@" · notes only (recording too long to store)"];
+    if (!snap || (!snap->hasRecording() && notes == 0)) return @"Press Record, then play your sample in your DAW";
+    NSMutableString* s = [NSMutableString string];
+    const int selected = snap ? ttr::selectedCount(snap->notes) : 0;
+    if (selected > 0) [s appendFormat:@"%d selected", selected];
+    if (_kernel->previewing()) [s appendString:s.length ? @" · Preview" : @"Preview"];
+    if (snap && snap->hasRecording() && !snap->audio) [s appendString:s.length ? @" · notes only (recording too long to store)" : @"Notes only (recording too long to store)"];
     return s;
 }
 

@@ -33,6 +33,7 @@ add_library(tonetrace_core STATIC
   src/analysis/SpectralFrames.cpp src/analysis/NoteAnalyzer.cpp src/analysis/KeyEstimator.cpp
   src/analysis/FftPortable.cpp src/analysis/FftAccelerate.cpp src/analysis/Hpss.cpp
   src/analysis/Spectrogram.cpp src/analysis/DrumFilter.cpp src/analysis/QuickGrab.cpp
+  src/analysis/LowBand.cpp src/analysis/SustainGrab.cpp src/analysis/SustainRuns.cpp src/analysis/BeatHits.cpp
   src/analysis/LiveSpectrum.cpp src/analysis/LiveHarmonic.cpp src/analysis/WavePeaks.cpp
   src/analysis/PitchLines.cpp src/analysis/LineFrames.cpp src/analysis/LineTracker.cpp src/analysis/LineOnsets.cpp
   src/analysis/LineBuilder.cpp src/analysis/LiveLines.cpp

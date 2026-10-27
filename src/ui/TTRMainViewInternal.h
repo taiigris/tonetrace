@@ -17,19 +17,27 @@
     TTRNoteMapView_v1* _map;
     TTRPianoKeys_v1* _piano;
     TTRScrollBar_v1* _scroll;
-    TTRKnob_v1 *_gainKnob, *_rangeKnob, *_quickGrabKnob, *_soundKnob, *_mixKnob;
+    TTRKnob_v1 *_gainKnob, *_rangeKnob, *_soundKnob, *_mixKnob;
+    TTRSlider_v1* _quickGrabSlider;
     TTRButton_v1 *_speedMinus, *_speedPlus, *_hideDrumsButton, *_magnetButton, *_grabButton, *_resetButton, *_clearButton, *_previewButton, *_soloButton, *_saveButton;
     TTRButton_v1 *_waveButton, *_fundamentalsButton, *_alignButton, *_tuningMinus, *_tuningPlus;
     TTRReadout_v1 *_tuningReadout, *_bridgeReadout;
-    TTRButton_v1 *_spectrumButton, *_linesButton, *_grabOnClickButton, *_samplerButton, *_samplerDragButton;
+    TTRButton_v1 *_grabOnClickButton, *_samplerButton, *_samplerDragButton;
+    TTRButton_v1 *_helpButton, *_viewButton, *_optionsButton;
     BOOL _samplerPending, _bridgeUp;  // a request waits for Live's answer / the heartbeat is fresh
     CFTimeInterval _bridgeChecked;
     TTRButton_v1 *_undoButton, *_redoButton, *_deleteButton, *_duplicateButton, *_infoButton, *_syncButton;
+    TTRPopoverView_v1* _options;
+    id _outsideClickMonitor;      // closes the options popover on a click anywhere else
+    BOOL _fitZoom, _fitRows;      // the whole recording fills the map width / the whole keyboard fills its height
+    double _fitRowH;              // row height the last vertical fit applied
+    NSRect _headerClip;           // centre of the header (status text)
+    NSString* _headerText;        // Key · BPM · Tuning · notes
     TTRBannerView_v1* _banner;
     TTRDiagnosticsView_v1* _diag;
     TTRLogoView_v1* _logoView;
     TTRAboutView_v1* _about;
-    TTRReadout_v1 *_speedReadout, *_keyReadout, *_bpmReadout;
+    TTRReadout_v1 *_speedReadout, *_keyReadout, *_bpmReadout;  // key and BPM only feed the header
     TTRDropdown_v1* _snap;
     TTRRecordButton_v1* _recordButton;
     TTRDragButton_v1* _dragButton;
@@ -48,16 +56,32 @@
     BOOL _showWave;               // waveform lane visible (editor state)
 }
 - (void)showMessage:(NSString*)message;
-- (void)editParam:(int)paramId value:(float)value;  // begin + set + end: one discrete edit
 - (void)viewportChanged;
 @end
 
 // Layout constants shared by construction, layout and drawing.
-extern const CGFloat kTTRPanelWidth, kTTRMargin, kTTRPianoWidth, kTTRStatusHeight, kTTRScrollHeight, kTTRWaveLaneHeight;
+extern const CGFloat kTTRPanelWidth, kTTRMargin, kTTRPianoWidth, kTTRHeaderHeight, kTTRScrollHeight, kTTRWaveLaneHeight;
 extern const double kTTRActiveHz, kTTRIdleHz;
 
 @interface TTRMainView_v1 (Layout)
 - (void)layoutControls;
+- (void)layoutHeader:(CGFloat)width;
+- (void)layoutSidebar:(CGFloat)width height:(CGFloat)height;
+- (void)layoutOptions:(CGFloat)width;
+- (void)drawHeaderText;
+@end
+
+@interface TTRMainView_v1 (Build)
+- (void)buildSubviews;
+- (void)editParam:(int)paramId value:(float)value;
+@end
+
+// Fit zoom (whole recording in the map), options popover and help.
+@interface TTRMainView_v1 (Fit)
+- (void)applyFitToView;  // sets the zoom of the shared viewport while a fit is on
+- (void)toggleOptions;
+- (void)closeOptions;
+- (void)showHelp;
 @end
 
 @interface TTRMainView_v1 (Actions)
@@ -107,6 +131,4 @@ extern const double kTTRActiveHz, kTTRIdleHz;
 - (void)lineViewChanged:(ttr::LineView)view;  // kernel + editor state
 - (void)nudgeTuning:(int)direction;
 - (NSString*)tuningText;
-- (void)drawStatusBar:(NSRect)status;
-- (void)layoutStatusButtons;
 @end

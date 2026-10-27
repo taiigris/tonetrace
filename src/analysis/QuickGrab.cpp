@@ -4,6 +4,9 @@
 #include <cmath>
 
 #include "analysis/NoteAnalyzer.h"
+#include "analysis/LowBand.h"
+#include "analysis/SpectralFrames.h"
+#include "analysis/SustainGrab.h"
 
 namespace ttr {
 
@@ -37,12 +40,18 @@ std::vector<NoteEvent> quickGrabFromLines(const PitchLines& lines, float amount,
 }
 
 std::vector<NoteEvent> quickGrabSnapshot(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, TaskControl* control) {
-    // 4.3: the proven salience analysis on the harmonic part always decides (the display toggle for drums only dims the picture).
-    // The fine pitch of the lines (tuning) only shifts the display grid; it plays no part in the segmentation.
+    // 4.4: held notes (SustainGrab); the Hide drums toggle only dims the picture, the fine pitch (tuning) only shifts the display grid.
     if (!snapshot.spectrogram) return {};
-    FilterSettings analysis = filter;
-    analysis.hideDrums = true;
-    return quickGrabNotes(*snapshot.spectrogram, amount, analysis, control);
+    const Spectrogram& spec = *snapshot.spectrogram;
+    std::vector<float> low;
+    if (spec.low.empty() && snapshot.audio && !snapshot.audio->samples.empty()) {
+        std::vector<float> samples(snapshot.audio->samples.size());
+        for (size_t i = 0; i < samples.size(); ++i) samples[i] = float(snapshot.audio->samples[i]) / 32767.0f;
+        low = computeLowEnergies(samples.data(), long(samples.size()), snapshot.audio->sampleRate, spec.frames, kHopSize);
+    }
+    std::vector<NoteEvent> notes = sustainGrabNotes(spec, spec.low.empty() ? low : spec.low, amount, {snapshot.bpm, snapshot.startPpq}, control);
+    for (NoteEvent& n : notes) { n.strength = 1.0f; n.selected = false; }
+    return notes;
 }
 
 }  // namespace ttr

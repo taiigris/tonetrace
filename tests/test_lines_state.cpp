@@ -80,7 +80,7 @@ TEST(ui_settings_of_version_4_0_still_decode_with_new_defaults) {
     UiSettings s;
     std::string reason;
     CHECK_MSG(decodeUiSettings(v1.data(), v1.size(), &s, &reason), "%s", reason.c_str());
-    CHECK(s.snap == 2 && s.speed == 2.0f && !s.hideDrums && s.syncToHost && s.width == 1000 && s.height == 700);
+    CHECK(s.snap == 2 && s.speed == 2.0f && !s.hideDrums && s.syncToHost && s.width == kMinWindowWidth && s.height == 700);
     CHECK(!s.fundamentals && s.alignToSample && s.tuningTrim == 0.0f);
     CHECK(s.isSpectrum && !s.grabOnClick && !s.samplerOnDrag);  // the 4.3 fields take their defaults
     s.fundamentals = true;

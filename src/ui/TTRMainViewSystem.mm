@@ -1,9 +1,8 @@
-// Main view: timer rate, hover help, notice banners, diagnostics panel, editor state and the status bar buttons.
+// Main view: timer rate, hover help, notice banners, diagnostics panel, editor state.
 #import "core/NoteEdit.h"
 #import "ui/TTRMainViewInternal.h"
 #import "ui/TTRTheme.h"
 
-static const CGFloat kStatusButtonH = 20, kStatusButtonGap = 4, kBannerHeight = 40, kBannerInset = 8;
 static const double kViewportEpsilon = 0.5, kFpsWindowSeconds = 1.0;
 
 @implementation TTRMainView_v1 (System)
@@ -115,36 +114,6 @@ static const double kViewportEpsilon = 0.5, kFpsWindowSeconds = 1.0;
     ui.width = int(size.width);
     ui.height = int(size.height);
     _bridge->storeUiSettings(ui);
-}
-
-// ------------------------------------------------------------ status bar
-
-- (void)layoutStatusButtons {
-    const CGFloat leftW = self.bounds.size.width - kTTRPanelWidth, y = self.bounds.size.height - kTTRStatusHeight + 3;
-    const CGFloat widths[] = {46, 46, 54, 70};
-    TTRButton_v1* buttons[] = {_undoButton, _redoButton, _deleteButton, _duplicateButton};
-    CGFloat x = leftW - kTTRMargin;
-    for (int i = 3; i >= 0; --i) {
-        x -= widths[i];
-        buttons[i].frame = NSMakeRect(x, y, widths[i], kStatusButtonH);
-        x -= kStatusButtonGap;
-    }
-    const NSRect map = _map.frame;
-    _banner.frame = NSMakeRect(map.origin.x + kBannerInset, map.origin.y + kBannerInset, MAX(60, map.size.width - 2 * kBannerInset), kBannerHeight);
-    _diag.frame = NSMakeRect(0, 0, leftW, self.bounds.size.height - kTTRStatusHeight);
-    _about.frame = self.bounds;
-}
-
-- (void)drawStatusBar:(NSRect)status {
-    const CGFloat buttonsW = 46 + 46 + 54 + 70 + 3 * kStatusButtonGap + 2 * kTTRMargin;
-    NSColor* color = _transientMessage && CACurrentMediaTime() < _transientUntil ? TTR_SELECT : _kernel->status() != ttr::KernelStatus::Idle ? TTR_TEXT : TTR_DIM;
-    NSMutableParagraphStyle* style = [[NSMutableParagraphStyle alloc] init];
-    style.lineBreakMode = NSLineBreakByTruncatingTail;
-    NSMutableDictionary* attrs = [TTRTextAttrs(TTRFont(12, NSFontWeightMedium), color) mutableCopy];
-    attrs[NSParagraphStyleAttributeName] = style;
-    const CGFloat textH = ceil(TTRFont(12, NSFontWeightMedium).ascender - TTRFont(12, NSFontWeightMedium).descender);
-    [_statusText ?: @"" drawInRect:NSMakeRect(kTTRMargin, status.origin.y + floor((status.size.height - textH) / 2), MAX(40, status.size.width - buttonsW - kTTRMargin), textH)
-                    withAttributes:attrs];
 }
 
 @end

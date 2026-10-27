@@ -11,6 +11,9 @@ namespace ttr {
 // drumFilter 0..1 scales how eagerly the gate fires.
 std::vector<float> gatedHarmonicEnergies(const Spectrogram& spec, float drumFilter);
 
+// Frames within [-beforeSec, +afterSec] of a percussive onset: what a drum hit may mask (1) or not (0).
+std::vector<char> percussiveFrames(const Spectrogram& spec, float drumFilter, double beforeSec, double afterSec);
+
 // Computes note.tonality and note.sustain from the spectrogram.
 void annotateSegment(const Spectrogram& spec, NoteSegment* segment);
 

@@ -130,8 +130,6 @@ int main(int argc, const char* argv[]) {
         NSWindow* win = uievents::hostWindow(view, kTTRDefaultSize);
         (void)win;
         TTRNoteMapView_v1* map = (TTRNoteMapView_v1*)uievents::find(view, TTRNoteMapView_v1.class);
-        view->_vp->rowH = 9.0;  // the tune and the drums above it on one screen
-        view->_vp->scrollY = 0.0;
 
         kernel->setParam(kParamRecord, 1.0f);
         tk::run(*kernel, signal, 0, size_t(4.6 * kRate));
@@ -142,8 +140,6 @@ int main(int argc, const char* argv[]) {
         kernel->setParam(kParamRecord, 0.0f);
         tk::run(*kernel, tk::silence(2));
         tk::waitFor([&] { return kernel->status() == KernelStatus::Idle && kernel->snapshot() && kernel->snapshot()->hasRecording() && kernel->snapshot()->lines; });
-        [view refreshNow];
-        view->_vp->scrollY = 0.0;
         [view refreshNow];
         const double detected = kernel->detectedTuningCents();
         printf("detected tuning %+.1f ct (sample was detuned by %+.1f ct)\n", detected, kDetuneCents);
@@ -170,6 +166,15 @@ int main(int argc, const char* argv[]) {
         [view refreshNow];
         printf("hover label \"%s\", ghost \"%s\"\n", map.hoverLabel.UTF8String, map.ghostLabel.UTF8String);
         failures += !writePng(view, [dir stringByAppendingPathComponent:@"screenshot.png"]);
+
+        // ---- options popover open
+        {
+            [view toggleOptions];
+            [view refreshNow];
+            failures += !writePng(view, [dir stringByAppendingPathComponent:@"screenshot-options.png"]);
+            [view toggleOptions];
+            [view refreshNow];
+        }
 
         // ---- the same document in the Lines view
         {
@@ -214,8 +219,6 @@ int main(int argc, const char* argv[]) {
         win.contentView = nil;
         NSWindow* small = uievents::hostWindow(view, kTTRMinimumSize);
         (void)small;
-        [view refreshNow];
-        view->_vp->scrollY = 0.0;
         [view refreshNow];
         [map mouseMoved:uievents::mouse(NSEventTypeMouseMoved, map, [map pointForTime:2.8 pitch:72])];
         [view refreshNow];

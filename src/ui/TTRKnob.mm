@@ -78,7 +78,7 @@ static const CGFloat kKnobDiameter = 34.0;
         const NSPoint pt = NSMakePoint(c.x + r * cos(a), c.y + r * sin(a));
         i == 0 ? [path moveToPoint:pt] : [path lineToPoint:pt];
     }
-    path.lineWidth = 3.0;
+    path.lineWidth = 2.5;
     path.lineCapStyle = NSLineCapStyleRound;
     return path;
 }
@@ -87,16 +87,17 @@ static const CGFloat kKnobDiameter = 34.0;
     [TTR_BORDER setStroke];
     [[self arcFrom:0 to:1 center:c radius:r] stroke];
     if (_value > 0.001) {
-        [(_dragging ? TTR_SELECT : TTR_ACCENT) setStroke];
+        [TTR_ACCENT setStroke];
         [[self arcFrom:0 to:_value center:c radius:r] stroke];
     }
     const CGFloat cap = r * 0.55;
     TTRFillRounded(NSMakeRect(c.x - cap, c.y - cap, 2 * cap, 2 * cap), cap, TTR_PANEL_RAISED);
+    TTRStrokeRounded(NSMakeRect(c.x - cap, c.y - cap, 2 * cap, 2 * cap), cap, TTR_BORDER);
     const double a = (kKnobStartDeg + kKnobSweepDeg * _value) * M_PI / 180.0;
     NSBezierPath* tick = [NSBezierPath bezierPath];
     [tick moveToPoint:NSMakePoint(c.x + cap * 0.35 * cos(a), c.y + cap * 0.35 * sin(a))];
     [tick lineToPoint:NSMakePoint(c.x + cap * 0.9 * cos(a), c.y + cap * 0.9 * sin(a))];
-    tick.lineWidth = 2;
+    tick.lineWidth = 1.5;
     tick.lineCapStyle = NSLineCapStyleRound;
     [TTR_TEXT setStroke];
     [tick stroke];
@@ -106,10 +107,10 @@ static const CGFloat kKnobDiameter = 34.0;
     const NSRect b = self.bounds;
     NSString* valueText = _valueFormatter ? _valueFormatter(_value) : [NSString stringWithFormat:@"%.0f%%", _value * 100];
     if (_isCompact) {  // dial on top, title and value centred below
-        const CGFloat textH = 25, dialArea = b.size.height - textH, r = MIN(14.0, dialArea / 2 - 2);
+        const CGFloat textH = 30, dialArea = b.size.height - textH, r = MIN(16.0, dialArea / 2 - 2);
         [self drawDialAt:NSMakePoint(b.size.width / 2, dialArea / 2 + 1) radius:r];
-        TTRDrawText([_title uppercaseString], NSMakeRect(0, b.size.height - textH, b.size.width, 12), TTRFont(9, NSFontWeightSemibold), TTR_DIM, NSTextAlignmentCenter, 0.8);
-        TTRDrawText(valueText, NSMakeRect(0, b.size.height - 13, b.size.width, 13), TTRMono(11), TTR_TEXT, NSTextAlignmentCenter);
+        TTRDrawText([_title uppercaseString], NSMakeRect(0, b.size.height - textH, b.size.width, 14), TTRFont(11, NSFontWeightSemibold), TTR_DIM, NSTextAlignmentCenter, 0.6);
+        TTRDrawText(valueText, NSMakeRect(0, b.size.height - 16, b.size.width, 16), TTRMono(13), TTR_TEXT, NSTextAlignmentCenter);
         return;
     }
     const NSPoint c = NSMakePoint(kKnobDiameter / 2 + 2, b.size.height / 2);

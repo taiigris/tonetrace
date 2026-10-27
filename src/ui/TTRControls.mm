@@ -77,23 +77,67 @@ static const CGFloat kDragThreshold = 5.0;
     }
 }
 
+// Header icons: thin strokes in one colour, 16 pt, centred.
+- (void)drawIconInRect:(NSRect)r color:(NSColor*)color {
+    const NSPoint c = NSMakePoint(NSMidX(r), NSMidY(r));
+    [color setStroke];
+    [color setFill];
+    NSBezierPath* p = [NSBezierPath bezierPath];
+    p.lineWidth = 1.5;
+    p.lineCapStyle = NSLineCapStyleRound;
+    switch (_glyph) {
+        case TTRIconHelp:
+            TTRDrawText(@"?", r, TTRFont(15, NSFontWeightSemibold), color, NSTextAlignmentCenter);
+            return;
+        case TTRIconInfo: {
+            NSBezierPath* ring = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 7.5, c.y - 7.5, 15, 15)];
+            ring.lineWidth = 1.5;
+            [ring stroke];
+            [p moveToPoint:NSMakePoint(c.x, c.y - 0.5)];
+            [p lineToPoint:NSMakePoint(c.x, c.y + 3.5)];
+            [p stroke];
+            [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(c.x - 1, c.y - 4.5, 2, 2)] fill];
+            return;
+        }
+        case TTRIconGear:  // three sliders: the options
+            for (int i = 0; i < 3; ++i) {
+                const CGFloat y = c.y - 5 + i * 5, knob = c.x + (i == 1 ? 3 : -3);
+                [p moveToPoint:NSMakePoint(c.x - 7, y)];
+                [p lineToPoint:NSMakePoint(c.x + 7, y)];
+                [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(knob - 2, y - 2, 4, 4)] fill];
+            }
+            [p stroke];
+            return;
+        case TTRIconView:
+            if (_isOn) {  // lines
+                for (int i = 0; i < 4; ++i) { [p moveToPoint:NSMakePoint(c.x - 7, c.y - 6 + i * 4)]; [p lineToPoint:NSMakePoint(c.x + 7 - (i % 2) * 3, c.y - 6 + i * 4)]; }
+                [p stroke];
+            } else {  // spectrum: a grid of cells
+                for (int row = 0; row < 3; ++row)
+                    for (int col = 0; col < 3; ++col) [[NSBezierPath bezierPathWithRect:NSMakeRect(c.x - 7 + col * 5.3, c.y - 7 + row * 5.3, 3.6, 3.6)] fill];
+            }
+            return;
+        default: return;
+    }
+}
+
 - (void)drawRect:(NSRect)dirty {
     const NSRect b = self.bounds;
-    NSColor *fill = _hover ? TTRHex(0x2F3744) : TTR_PANEL_RAISED, *border = TTR_BORDER, *text = TTR_TEXT, *glyph = TTR_DIM;
-    if (_kind == TTRButtonKindPlay) glyph = TTR_ACCENT;
-    if (_kind == TTRButtonKindDrag) { fill = TTRHex(0x2EE6C5, _hover ? 0.22 : 0.14); border = TTR_ACCENT; text = TTR_ACCENT; glyph = TTR_ACCENT; }
-    if (_isOn && _kind == TTRButtonKindPlay) { fill = TTR_ACCENT; border = TTR_ACCENT; text = TTRHex(0x0B1512); glyph = TTRHex(0x0B1512); }
-    if (_isOn && _kind == TTRButtonKindNormal) { fill = TTRHex(0x2EE6C5, 0.20); border = TTR_ACCENT; text = TTR_ACCENT; }  // toggle on
-    if (_pressed) fill = [fill blendedColorWithFraction:0.25 ofColor:[NSColor blackColor]];
-    const CGFloat alpha = _isEnabled ? 1.0 : 0.38;
+    NSColor *fill = _hover ? TTR_HOVER : TTR_PANEL_RAISED, *border = TTR_BORDER, *text = TTR_TEXT, *glyph = TTR_DIM;
+    if (_kind == TTRButtonKindPlay) glyph = TTR_TEXT;
+    if (_kind == TTRButtonKindDrag) { fill = _hover ? TTRHex(0x5CF0D6) : TTR_ACCENT; border = fill; text = TTR_ON_ACCENT; glyph = TTR_ON_ACCENT; }
+    if (_isOn && _kind != TTRButtonKindDrag) { fill = TTR_ACCENT_TINT; border = TTR_ACCENT_TINT; text = TTR_ACCENT; glyph = TTR_ACCENT; }  // a filled background marks an active toggle
+    if (_kind == TTRButtonKindIcon && !_isOn) text = TTR_DIM;
+    if (_pressed) fill = [fill blendedColorWithFraction:0.2 ofColor:[NSColor blackColor]];
     CGContextRef ctx = [NSGraphicsContext currentContext].CGContext;
-    CGContextSetAlpha(ctx, alpha);
-    TTRFillRounded(b, 7, fill);
-    TTRStrokeRounded(b, 7, border, 1.0);
+    CGContextSetAlpha(ctx, _isEnabled ? 1.0 : 0.38);
+    TTRFillRounded(b, kTTRRadius, fill);
+    TTRStrokeRounded(b, kTTRRadius, border, 1.0);
+    if (_kind == TTRButtonKindIcon) { [self drawIconInRect:b color:_isOn || _hover ? (_isOn ? TTR_ACCENT : TTR_TEXT) : TTR_DIM]; return; }
 
     NSFont* font = TTRFont(12, NSFontWeightSemibold);
     for (CGFloat size = 11; size >= 9 && TTRTextWidth(_title, font) > b.size.width - 10; size -= 1) font = TTRFont(size, NSFontWeightSemibold);  // long titles shrink instead of being cut
-    const CGFloat glyphW = _kind == TTRButtonKindNormal ? 0 : 12, gap = glyphW > 0 ? 7 : 0;
+    const CGFloat glyphW = (_kind == TTRButtonKindPlay || _kind == TTRButtonKindDrag) ? 12 : 0, gap = glyphW > 0 ? 8 : 0;
     const CGFloat textW = TTRTextWidth(_title, font), groupW = MIN(b.size.width - 8, glyphW + gap + textW);
     const CGFloat x0 = floor((b.size.width - groupW) / 2.0);
     if (glyphW > 0) [self drawGlyphInRect:NSMakeRect(x0, floor((b.size.height - 12) / 2.0), 12, 12) color:glyph];

@@ -19,7 +19,6 @@ constexpr double kBridgeGapSec = 0.040;
 constexpr float kEdgeTrimRatio = 0.35f;
 constexpr double kShortNoteSec = 0.15;   // short AND weak segments are almost always partial leakage
 constexpr float kWeakStrength = 0.6f;
-constexpr float kSubtractGain = 0.85f;  // under-subtract slightly: partials of different notes interfere
 
 // Salience harmonics (semitone offsets / weights, spec: harmonics 1..6).
 constexpr int kSalienceSemis[6] = {0, 12, 19, 24, 28, 31};
@@ -31,14 +30,14 @@ struct Harmonic {
 };
 
 // Harmonics 2..kMaxSuppressedHarmonic (covers the whole note range for a 41 Hz fundamental). Partials that fall between two notes (> 25 cent off) are subtracted from both neighbours.
-std::vector<Harmonic> makeSuppressionHarmonics() {
+std::vector<Harmonic> makeSuppressionHarmonics(float subtractGain) {
     std::vector<Harmonic> out;
     for (int h = 2; h <= kMaxSuppressedHarmonic; ++h) {
         const double semis = 12.0 * std::log2(double(h));
         const int nearest = int(std::lround(semis));
-        out.push_back({nearest, kSubtractGain / h});
+        out.push_back({nearest, subtractGain / h});
         const double deviation = semis - nearest;
-        if (std::fabs(deviation) > 0.25) out.push_back({nearest + (deviation > 0 ? 1 : -1), kSubtractGain / h});
+        if (std::fabs(deviation) > 0.25) out.push_back({nearest + (deviation > 0 ? 1 : -1), subtractGain / h});
     }
     return out;
 }
@@ -46,7 +45,8 @@ std::vector<Harmonic> makeSuppressionHarmonics() {
 float clampf(float v, float lo, float hi) { return std::min(hi, std::max(lo, v)); }
 
 // Greedy pick of fundamentals in one frame; writes residual amplitudes of picked notes to `out`.
-void pickFrame(const float* raw, float floorAmp, const std::vector<Harmonic>& suppress, float* out) {
+void pickFrame(const float* raw, float floorAmp, const std::vector<Harmonic>& suppress, const PickOptions& options, float* out) {
+    const float explainFactor = options.explainFactor;
     float residual[kNumNotes];
     bool picked[kNumNotes] = {false};
     std::copy(raw, raw + kNumNotes, residual);
@@ -73,7 +73,10 @@ void pickFrame(const float* raw, float floorAmp, const std::vector<Harmonic>& su
         residual[best] = 0.0f;
         for (const Harmonic& hm : suppress) {
             const int idx = best + hm.semis;
-            if (idx < kNumNotes) residual[idx] = std::max(0.0f, residual[idx] - amp * hm.share);
+            if (idx >= kNumNotes) continue;
+            const float predicted = amp * hm.share;
+            // within explainFactor of the prediction the partial is just that overtone (no other note adds to it)
+            residual[idx] = residual[idx] <= explainFactor * predicted ? 0.0f : std::max(0.0f, residual[idx] - predicted);
         }
     }
 }
@@ -103,34 +106,38 @@ namespace {
 constexpr int kProgressStride = 128;
 
 std::shared_ptr<Salience> salienceFromEnergies(const std::vector<float>& energies, int frames, double hopSec, double lengthSec, TaskControl* control) {
-    if (energies.empty()) return nullptr;
-    const float maxEnergy = *std::max_element(energies.begin(), energies.end());
-    if (maxEnergy <= 1e-9f) return nullptr;
-
-    const float floorAmp = maxEnergy * std::pow(10.0f, kPickFloorDb / 20.0f);
-    const std::vector<Harmonic> suppress = makeSuppressionHarmonics();
-
+    std::vector<float> picks = pickFundamentals(energies, frames, control);
+    if (picks.empty()) return nullptr;
     auto result = std::make_shared<Salience>();
     result->frames = frames;
     result->hopSec = hopSec;
     result->lengthSec = lengthSec;
-    result->values.assign(size_t(frames) * kNumNotes, 0.0f);
-    for (int f = 0; f < frames; ++f) {
-        if (control && f % kProgressStride == 0) {
-            if (control->cancelled()) return nullptr;
-            control->report(0.3f + 0.6f * float(f) / float(frames));
-        }
-        pickFrame(&energies[size_t(f) * kNumNotes], floorAmp, suppress, &result->values[size_t(f) * kNumNotes]);
-    }
-
+    result->values = std::move(picks);
     const float maxPick = *std::max_element(result->values.begin(), result->values.end());
-    if (maxPick <= 0.0f) return nullptr;
     for (float& v : result->values) v /= maxPick;
     medianFilterTime(result->values, frames);
     return result;
 }
 
 }  // namespace
+
+std::vector<float> pickFundamentals(const std::vector<float>& energies, int frames, TaskControl* control, const PickOptions& options) {
+    if (energies.empty()) return {};
+    const float maxEnergy = *std::max_element(energies.begin(), energies.end());
+    if (maxEnergy <= 1e-9f) return {};
+    const float floorAmp = maxEnergy * std::pow(10.0f, kPickFloorDb / 20.0f);
+    const std::vector<Harmonic> suppress = makeSuppressionHarmonics(options.subtractGain);
+    std::vector<float> values(size_t(frames) * kNumNotes, 0.0f);
+    for (int f = 0; f < frames; ++f) {
+        if (control && f % kProgressStride == 0) {
+            if (control->cancelled()) return {};
+            control->report(0.3f + 0.6f * float(f) / float(frames));
+        }
+        pickFrame(&energies[size_t(f) * kNumNotes], floorAmp, suppress, options, &values[size_t(f) * kNumNotes]);
+    }
+    const float maxPick = *std::max_element(values.begin(), values.end());
+    return maxPick > 0.0f ? values : std::vector<float>();
+}
 
 std::shared_ptr<Salience> computeSalience(const Spectrogram& spec, const FilterSettings& filter, TaskControl* control) {
     if (spec.frames == 0) return nullptr;

@@ -94,8 +94,8 @@ static NSString* lengthName(double beats) {
         if (y < 2) y = NSMaxY(r) + 3;
         x = std::clamp(x, 2.0, std::max(2.0, b.size.width - w - 2));
         const NSRect pill = NSMakeRect(round(x), round(y), w, kGhostLabelHeight);
-        TTRFillRounded(pill, kGhostLabelHeight / 2, TTRHex(0x0B0C0E, 0.88));
-        TTRStrokeRounded(pill, kGhostLabelHeight / 2, TTRHex(0xFFFFFF, 0.22));
+        TTRFillRounded(pill, 4, TTRHex(0x0B0C0E, 0.88));
+        TTRStrokeRounded(pill, 4, TTRHex(0xFFFFFF, 0.22));
         TTRDrawText(label, pill, font, TTR_TEXT, NSTextAlignmentCenter);
     }
     NSString* text = [self hasHoverPoint] || _vp->hasCursor ? [self hoverLabel] : nil;

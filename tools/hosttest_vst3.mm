@@ -206,18 +206,18 @@ int main(int argc, const char* argv[]) {
                   "supports NSView only");
             ViewRect size;
             view->getSize(&size);
-            check(size.right - size.left == 1100 && size.bottom - size.top == 800, "default size 1100x800");
+            check(size.right - size.left == 1280 && size.bottom - size.top == 720, "default size 1280x720");
             check(view->canResize() == kResultTrue, "resizable");
             ViewRect tiny(0, 0, 100, 100);
             view->checkSizeConstraint(&tiny);
-            check(tiny.right - tiny.left == 820 && tiny.bottom - tiny.top == 650, "size constraint enforces the minimum 820x650");
+            check(tiny.right - tiny.left == 1024 && tiny.bottom - tiny.top == 600, "size constraint enforces the minimum 1024x600");
 
             NSWindow* window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, size.right, size.bottom) styleMask:NSWindowStyleMaskBorderless
                                                              backing:NSBackingStoreBuffered defer:NO];
             IPtr<TestFrame> frame = owned(new TestFrame);
             view->setFrame(frame);
             check(view->attached((__bridge void*)window.contentView, kPlatformTypeNSView) == kResultOk, "attached to an NSView");
-            check(frame->calls >= 1 && frame->last.right - frame->last.left == 1100, "IPlugFrame::resizeView announces the size");
+            check(frame->calls >= 1 && frame->last.right - frame->last.left == 1280, "IPlugFrame::resizeView announces the size");
             check(window.contentView.subviews.count == 1, "view embedded as subview");
             for (int i = 0; i < 6; ++i) [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
             NSView* content = window.contentView.subviews.firstObject;
