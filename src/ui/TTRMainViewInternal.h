@@ -19,7 +19,7 @@
     TTRScrollBar_v1* _scroll;
     TTRKnob_v1 *_gainKnob, *_rangeKnob, *_quickGrabKnob, *_soundKnob, *_mixKnob;
     TTRButton_v1 *_speedMinus, *_speedPlus, *_hideDrumsButton, *_magnetButton, *_grabButton, *_resetButton, *_clearButton, *_previewButton, *_soloButton, *_saveButton;
-    TTRButton_v1 *_fundamentalsButton, *_alignButton, *_tuningMinus, *_tuningPlus;
+    TTRButton_v1 *_waveButton, *_fundamentalsButton, *_alignButton, *_tuningMinus, *_tuningPlus;
     TTRReadout_v1* _tuningReadout;
     TTRButton_v1 *_undoButton, *_redoButton, *_deleteButton, *_duplicateButton, *_infoButton, *_syncButton;
     TTRBannerView_v1* _banner;
@@ -42,6 +42,7 @@
     double _fps;
     double _storedScrollSec, _storedScrollY;
     NSSize _storedSize;
+    BOOL _showWave;               // waveform lane visible (editor state)
 }
 - (void)showMessage:(NSString*)message;
 - (void)editParam:(int)paramId value:(float)value;  // begin + set + end: one discrete edit
@@ -49,7 +50,7 @@
 @end
 
 // Layout constants shared by construction, layout and drawing.
-extern const CGFloat kTTRPanelWidth, kTTRMargin, kTTRPianoWidth, kTTRStatusHeight, kTTRScrollHeight;
+extern const CGFloat kTTRPanelWidth, kTTRMargin, kTTRPianoWidth, kTTRStatusHeight, kTTRScrollHeight, kTTRWaveLaneHeight;
 extern const double kTTRActiveHz, kTTRIdleHz;
 
 @interface TTRMainView_v1 (Layout)
@@ -60,6 +61,8 @@ extern const double kTTRActiveHz, kTTRIdleHz;
 - (void)toggleRecord;
 - (void)togglePreview;
 - (void)stepSpeed:(int)direction;
+- (void)toggleWave;
+- (void)applyWaveVisibility:(BOOL)visible;
 - (void)performReset;
 - (void)resetClicked;
 - (void)grabClicked;

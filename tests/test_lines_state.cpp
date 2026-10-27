@@ -92,6 +92,36 @@ TEST(ui_settings_of_version_4_0_still_decode_with_new_defaults) {
     CHECK(sanitized(wild).tuningTrim == 50.0f);
 }
 
+TEST(ui_settings_wave_toggle_defaults_on_survives_the_state_and_old_states) {
+    UiSettings s;
+    CHECK(s.showWave);  // default: the waveform lane is visible
+    s.showWave = false;
+    s.tuningTrim = 7.0f;
+    const std::vector<uint8_t> blob = encodeUiSettings(s);
+    UiSettings back;
+    std::string reason;
+    CHECK_MSG(decodeUiSettings(blob.data(), blob.size(), &back, &reason), "%s", reason.c_str());
+    CHECK(!back.showWave && back.tuningTrim == 7.0f && back == s);
+    s.showWave = true;
+    const std::vector<uint8_t> shown = encodeUiSettings(s);
+    CHECK(decodeUiSettings(shown.data(), shown.size(), &back) && back.showWave);
+    // a 4.0 and a 4.1 editor state know no wave toggle: the lane stays visible
+    const std::vector<uint8_t> v1 = editorStateV1();
+    CHECK(decodeUiSettings(v1.data(), v1.size(), &back) && back.showWave);
+    std::vector<uint8_t> v2(blob.begin(), blob.end() - 1);  // 4.1 wrote the same body without the last byte, version 2
+    v2[4] = 2;
+    const uint32_t length = uint32_t(v2.size() - 16);
+    std::memcpy(&v2[8], &length, 4);
+    const uint32_t crc = crc32(v2.data() + 16, length);
+    std::memcpy(&v2[12], &crc, 4);
+    UiSettings old;
+    CHECK_MSG(decodeUiSettings(v2.data(), v2.size(), &old, &reason), "%s", reason.c_str());
+    CHECK(old.showWave && old.tuningTrim == 7.0f);
+    // the view settings of the host parameters do not touch it
+    ParamValues params = defaultParams();
+    CHECK(uiSettingsFromParams(params, false).showWave);
+}
+
 TEST(live_pitch_lines_grow_while_recording_and_finish_with_a_tuning) {
     TonetraceKernel k;
     k.prepare(kRate, kBlock);

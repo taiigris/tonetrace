@@ -15,7 +15,7 @@ static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(
     const CGFloat t = MIN(1.0, MAX(0.0, (H - kCompactHeight) / (kRelaxedHeight - kCompactHeight)));
 
     // left: lane, map, scroll bar, piano
-    const CGFloat laneH = lerp(56, 70, t), waveH = kTTRRulerHeight + laneH;
+    const CGFloat laneH = _showWave ? kTTRWaveLaneHeight : 0, waveH = kTTRRulerHeight + laneH;
     const CGFloat mapX = kTTRMargin + kTTRPianoWidth, mapW = MAX(60, leftW - mapX - kTTRMargin);
     const CGFloat mapY = kTTRMargin + waveH + 4;
     const CGFloat scrollY = H - kTTRStatusHeight - kTTRScrollHeight - 5;
@@ -52,7 +52,8 @@ static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(
     _snap.frame = NSMakeRect(x, y, w, btnH);
     y += btnH + gap;
     _quickGrabKnob.frame = NSMakeRect(x, y, half, knobH);
-    _grabButton.frame = NSMakeRect(col2, y + (knobH - btnH) / 2 - 3, half, btnH);
+    _grabButton.frame = NSMakeRect(col2, y, half, btnH);  // Grab and Wave share the height of the Quick Grab knob
+    _waveButton.frame = NSMakeRect(col2, y + btnH + gap, half, btnH);
     y += knobH + gap;
     _recordButton.frame = NSMakeRect(x + (w - recH * 1.6) / 2, y, recH * 1.6, recH);
     y += recH + gap;
@@ -90,10 +91,6 @@ static CGFloat lerp(CGFloat compact, CGFloat relaxed, CGFloat t) { return round(
     NSRectFill(NSMakeRect(leftW, 0, kTTRPanelWidth, b.size.height));
     [TTR_BORDER setFill];
     NSRectFill(NSMakeRect(leftW, 0, 1, b.size.height));
-
-    // label in the corner left of the waveform lane
-    const NSRect wave = _wave.frame;
-    TTRDrawText(@"WAVE", NSMakeRect(kTTRMargin, wave.origin.y + kTTRRulerHeight, kTTRPianoWidth, wave.size.height - kTTRRulerHeight), TTRFont(9, NSFontWeightSemibold), TTRHex(0x5E6675), NSTextAlignmentCenter, 1.0);
 
     // status line
     const NSRect status = NSMakeRect(0, b.size.height - kTTRStatusHeight, leftW, kTTRStatusHeight);

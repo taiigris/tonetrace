@@ -21,15 +21,17 @@ struct UiSettings {
     // thin-line map (4.1): dim overtones, shift the grid by the detected tuning, manual trim in cent
     bool fundamentals = true, alignToSample = true;
     float tuningTrim = 0.0f;
+    // glow map (4.2): the waveform lane above the map can be hidden
+    bool showWave = true;
     // window / viewport
     double scrollSec = 0.0;
     double scrollY = -1.0;  // < 0: default (around the middle of the keyboard)
     int width = kDefaultWindowWidth, height = kDefaultWindowHeight;
 
     bool operator==(const UiSettings& o) const {
-        return std::tie(gain, range, speed, quickGrab, snap, hideDrums, magnet, syncToHost, fundamentals, alignToSample, tuningTrim, scrollSec, scrollY, width, height) ==
-               std::tie(o.gain, o.range, o.speed, o.quickGrab, o.snap, o.hideDrums, o.magnet, o.syncToHost, o.fundamentals, o.alignToSample, o.tuningTrim, o.scrollSec,
-                        o.scrollY, o.width, o.height);
+        return std::tie(gain, range, speed, quickGrab, snap, hideDrums, magnet, syncToHost, fundamentals, alignToSample, tuningTrim, showWave, scrollSec, scrollY, width, height) ==
+               std::tie(o.gain, o.range, o.speed, o.quickGrab, o.snap, o.hideDrums, o.magnet, o.syncToHost, o.fundamentals, o.alignToSample, o.tuningTrim, o.showWave,
+                        o.scrollSec, o.scrollY, o.width, o.height);
     }
 };
 

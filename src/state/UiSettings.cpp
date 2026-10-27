@@ -11,7 +11,7 @@ namespace ttr {
 namespace {
 
 constexpr uint32_t kMagic = 0x31555454;  // "TTU1"
-constexpr uint32_t kVersion = 2;  // 2 adds fundamentals / align / tuning trim (version 1 still loads)
+constexpr uint32_t kVersion = 3;  // 2 adds fundamentals / align / tuning trim, 3 the waveform toggle (versions 1 and 2 still load)
 constexpr uint32_t kFirstVersion = 1;
 constexpr float kMaxTuningTrim = 50.0f;
 constexpr size_t kHeaderBytes = 16;
@@ -97,6 +97,7 @@ std::vector<uint8_t> encodeUiSettings(const UiSettings& s) {
     put<uint8_t>(body, s.fundamentals ? 1 : 0);
     put<uint8_t>(body, s.alignToSample ? 1 : 0);
     put<float>(body, s.tuningTrim);
+    put<uint8_t>(body, s.showWave ? 1 : 0);
     std::vector<uint8_t> out;
     put<uint32_t>(out, kMagic);
     put<uint32_t>(out, kVersion);
@@ -135,6 +136,7 @@ bool decodeUiSettings(const uint8_t* data, size_t size, UiSettings* out, std::st
         s.alignToSample = r.get<uint8_t>() != 0;
         s.tuningTrim = r.get<float>();
     }
+    if (version >= 3) s.showWave = r.get<uint8_t>() != 0;
     if (!r.ok()) return fail("the editor state is truncated");
     *out = sanitized(s);
     return true;

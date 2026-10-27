@@ -14,6 +14,7 @@
 #import "ui/TTRNoteMapView.h"
 #import "ui/TTROverlays.h"
 #import "ui/TTRWaveformView.h"
+#include "core/Version.h"
 
 using namespace ttr;
 using namespace uievents;
@@ -191,9 +192,9 @@ int main() {
         [view refreshNow];
         check(!diag.hidden, "the ⓘ button opens the diagnostics panel");
         NSString* report = [diag reportText];
-        check([report containsString:@"Tonetrace 4.1.0"] && [report containsString:@"Sample rate: 44100"] && [report containsString:@"DSP load"], "the report names version, sample rate and DSP load");
+        check([report containsString:[@"Tonetrace " stringByAppendingString:@TTR_VERSION_STRING]] && [report containsString:@"Sample rate: 44100"] && [report containsString:@"DSP load"], "the report names version, sample rate and DSP load");
         [diag copyReport];
-        check([[NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] containsString:@"Tonetrace 4.1.0"], "Copy report puts the report on the clipboard");
+        check([[NSPasteboard.generalPasteboard stringForType:NSPasteboardTypeString] containsString:[@"Tonetrace " stringByAppendingString:@TTR_VERSION_STRING]], "Copy report puts the report on the clipboard");
         infoB.onClick();
         check(diag.hidden, "the panel closes again");
 

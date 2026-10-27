@@ -9,7 +9,6 @@
 namespace {
 
 const CGFloat kMinBeatPixels = 7.0, kMinBarPixels = 10.0;
-const CGFloat kNoteLabelMinWidth = 28.0, kNoteLabelMinHeight = 9.0;
 const double kFrameAverageWeight = 0.1;
 
 void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
@@ -125,16 +124,23 @@ NSString* formatClock(double t) {
 - (void)drawNotes {
     const std::vector<ttr::NoteEvent>& notes = [self notes];
     const NSRect b = self.bounds;
-    for (const ttr::NoteEvent& n : notes) {
-        const NSRect r = [self rectForNote:n];
-        const CGFloat fontSize = r.size.height >= 11 ? 9 : 8;
-        NSDictionary* labelAttrs = TTRTextAttrs(TTRFont(fontSize, NSFontWeightBold), TTRHex(0xFFFFFF, 0.95));
-        if (NSMaxX(r) < 0 || r.origin.x > b.size.width || NSMaxY(r) < 0 || r.origin.y > b.size.height) continue;
-        const CGFloat radius = MIN(3.0, r.size.height / 3.0);
-        TTRFillRounded(r, radius, n.selected ? TTRHex(0xFF9F43, 0.80) : TTRHex(0x19E6A0, 0.74));
-        TTRStrokeRounded(r, radius, n.selected ? TTRHex(0xFFD2A0) : TTRHex(0x8CFFDA), 1.2);
-        if (r.size.width > kNoteLabelMinWidth && r.size.height >= kNoteLabelMinHeight)
-            [TTRNoteName(n.pitch) drawAtPoint:NSMakePoint(r.origin.x + 5, r.origin.y + (r.size.height - (fontSize + 2)) / 2 - 0.5) withAttributes:labelAttrs];
+    const int hovered = [self hasHoverPoint] ? [self hitNoteIndexAt:[self cursorPoint]] : -1;
+    NSFont* font = TTRFont(9, NSFontWeightSemibold);
+    NSDictionary* labelAttrs = TTRTextAttrs(font, TTRHex(0xFFFFFF, 0.9));
+    for (size_t i = 0; i < notes.size(); ++i) {
+        const ttr::NoteEvent& n = notes[i];
+        const NSRect row = [self rectForNote:n];
+        if (NSMaxX(row) < 0 || row.origin.x > b.size.width || NSMaxY(row) < 0 || row.origin.y > b.size.height) continue;
+        const NSRect bar = TTRNoteBarRect(row);
+        TTRFillRounded(bar, MIN(1.5, bar.size.height / 3.0), n.selected ? TTRHex(0xFF9F43, 0.92) : TTRHex(0x2FBF5B, 0.88));
+        if (!n.selected && int(i) != hovered) continue;  // the name only shows on hover or selection, beside the bar
+        NSString* name = TTRNoteName(n.pitch);
+        const CGFloat w = TTRTextWidth(name, font) + 8, h = 13;
+        CGFloat x = NSMaxX(bar) + 4;
+        if (x + w > b.size.width - 2) x = bar.origin.x - 4 - w;
+        const NSRect pill = NSMakeRect(round(x), round(NSMidY(bar) - h / 2), w, h);
+        TTRFillRounded(pill, 4, TTRHex(0x08090B, 0.78));
+        [name drawAtPoint:NSMakePoint(pill.origin.x + 4, pill.origin.y + (h - 11) / 2 - 0.5) withAttributes:labelAttrs];
     }
 }
 

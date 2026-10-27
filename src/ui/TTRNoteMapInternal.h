@@ -14,6 +14,13 @@ typedef NS_ENUM(NSInteger, TTRGesture) {
 
 extern const CGFloat kTTREdgeGrabPixels;  // width of the resize zones at both ends of a note
 
+// Notes are drawn as flat bars about as thick as the core of a line, centred in their row (the row rect stays the hit area).
+static const CGFloat kTTRBarMinHeight = 5.0, kTTRBarMaxHeight = 7.0;
+static inline NSRect TTRNoteBarRect(NSRect row) {
+    const CGFloat h = MIN(kTTRBarMaxHeight, MAX(kTTRBarMinHeight, row.size.height * 0.5));
+    return NSMakeRect(row.origin.x, row.origin.y + (row.size.height - h) / 2, row.size.width, h);
+}
+
 @interface TTRNoteMapView_v1 () {
 @public
     std::shared_ptr<ttr::TonetraceKernel> _kernel;

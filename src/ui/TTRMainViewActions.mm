@@ -94,6 +94,21 @@ static const float kTuningStepCents = 5.0f;
     [self refreshNow];
 }
 
+// The waveform lane is part of the editor state only (not a host parameter).
+- (void)toggleWave {
+    ttr::UiSettings ui = _bridge->uiSettings();
+    ui.showWave = !ui.showWave;
+    _bridge->storeUiSettings(ui);
+    [self applyWaveVisibility:ui.showWave];
+}
+
+- (void)applyWaveVisibility:(BOOL)visible {
+    _showWave = visible;
+    _waveButton.isOn = visible;
+    [self layoutControls];
+    self.needsDisplay = YES;
+    [self refreshNow];
+}
 - (void)nudgeTuning:(int)direction {
     ttr::LineView view = _kernel->lineView();
     view.trimCents = std::clamp(view.trimCents + float(direction) * kTuningStepCents, -ttr::kMaxTrimCents, ttr::kMaxTrimCents);

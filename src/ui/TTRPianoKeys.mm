@@ -43,39 +43,51 @@
     if (_onScroll) _onScroll();
 }
 
+// Narrow keyboard at the right edge: white keys as one light column with thin dividers, black keys as shorter dark bars from the inside;
+// the C labels in small type to its left.
+static const CGFloat kStripWidth = 16.0, kLabelGap = 4.0, kBlackKeyShare = 0.62;
+static const uint32_t kPianoBackground = 0x08090B, kWhiteKey = 0xD2D6DC, kDivider = 0x7C828C, kBlackKey = 0x14161A, kLitKey = 0x2EE6C5, kPressedKey = 0x1E9C86, kLabelColor = 0x6A7280;
+
 - (void)drawRect:(NSRect)dirty {
     const NSRect b = self.bounds;
-    [TTR_PANEL setFill];
+    [TTRHex(kPianoBackground) setFill];
     NSRectFill(b);
-    const CGFloat rowH = _vp->rowH;
+    const CGFloat rowH = _vp->rowH, stripX = b.size.width - kStripWidth, blackW = round(kStripWidth * kBlackKeyShare);
     const int hoverPitch = _vp->hasCursor ? int(std::lround(_vp->cursorPitch)) : -1;
     CGContextRef ctx = [NSGraphicsContext currentContext].CGContext;
     CGContextSaveGState(ctx);
     CGContextClipToRect(ctx, b);
-    NSDictionary* cAttrs = TTRTextAttrs(TTRFont(9, NSFontWeightSemibold), TTRHex(0x4B5361));
+    NSDictionary* cAttrs = TTRTextAttrs(TTRFont(8, NSFontWeightMedium), TTRHex(kLabelColor));
+    const CGFloat top = MAX(0.0, _vp->yTopForPitch(ttr::kMaxNote)), bottom = MIN(b.size.height, _vp->yTopForPitch(ttr::kMinNote) + rowH);
+    [TTRHex(kWhiteKey) setFill];
+    NSRectFill(NSMakeRect(stripX, top, kStripWidth, MAX(0.0, bottom - top)));
     for (int p = ttr::kMaxNote; p >= ttr::kMinNote; --p) {
         const CGFloat y = _vp->yTopForPitch(p);
         if (y > b.size.height || y + rowH < 0) continue;
         const BOOL lit = p == _pressedPitch, hovered = p == hoverPitch;
-        [(lit ? TTRHex(0x2EE6C5) : hovered ? TTRHex(0x8CF5E4) : TTRHex(0xD9DDE4)) setFill];
-        NSRectFill(NSMakeRect(0, y, b.size.width, rowH));
+        const int pc = p % 12;
         if (TTRIsBlackKey(p)) {
-            [(lit ? TTRHex(0x1E9C86) : hovered ? TTRHex(0x2EE6C5) : TTRHex(0x23282F)) setFill];
-            [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(-4, y + 0.5, b.size.width * 0.62 + 4, rowH - 1) xRadius:3 yRadius:3] fill];
+            [TTRHex(kDivider) setFill];  // the divider between the two white keys behind this black key
+            NSRectFill(NSMakeRect(stripX, floor(y + rowH / 2), kStripWidth, 1));
+            [TTRHex(lit ? kPressedKey : hovered ? kLitKey : kBlackKey) setFill];
+            NSRectFill(NSMakeRect(stripX + kStripWidth - blackW, y + 0.5, blackW, MAX(1.0, rowH - 1)));
         } else {
-            [TTRHex(0xA3ACBA) setFill];
-            NSRectFill(NSMakeRect(0, y + rowH - 1, b.size.width, 1));
+            if (lit || hovered) {
+                [TTRHex(lit ? kPressedKey : kLitKey) setFill];
+                NSRectFill(NSMakeRect(stripX, y + 0.5, kStripWidth, MAX(1.0, rowH - 1)));
+            }
+            if (pc == 0 || pc == 5) {  // C and F start a white key right after B / E
+                [TTRHex(kDivider) setFill];
+                NSRectFill(NSMakeRect(stripX, y + rowH - 1, kStripWidth, 1));
+            }
         }
-        if (hovered) { [TTR_ACCENT setFill]; NSRectFill(NSMakeRect(b.size.width - 6, y + 1, 6, rowH - 2)); }  // the key of the hovered row lights up
-        if (p % 12 == 0) {
+        if (pc == 0) {
             NSString* name = TTRNoteName(p);
-            const CGFloat w = TTRTextWidth(name, TTRFont(9, NSFontWeightSemibold));
-            [name drawAtPoint:NSMakePoint(b.size.width - 10 - w, y + (rowH - 11) / 2 - 0.5) withAttributes:cAttrs];
+            const CGFloat w = TTRTextWidth(name, TTRFont(8, NSFontWeightMedium));
+            [name drawAtPoint:NSMakePoint(stripX - kLabelGap - w, y + (rowH - 10) / 2 - 0.5) withAttributes:cAttrs];
         }
     }
     CGContextRestoreGState(ctx);
-    [TTR_BORDER setFill];
-    NSRectFill(NSMakeRect(b.size.width - 1, 0, 1, b.size.height));
 }
 
 @end

@@ -121,7 +121,7 @@ static void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
     CGContextRef ctx = [NSGraphicsContext currentContext].CGContext;
     CGContextClipToRect(ctx, self.bounds);
     const NSRect lane = [self laneRect];
-    fillRect(ctx, lane, 0x0F1217, 1.0);
+    fillRect(ctx, lane, 0x07080A, 1.0);
     CGContextSaveGState(ctx);
     CGContextClipToRect(ctx, lane);
     [self drawBeatGrid:ctx lane:lane];
@@ -141,13 +141,13 @@ static void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
     for (long k = long(floor(ppq0 + t0 * bps)); k <= long(ceil(ppq0 + t1 * bps)); ++k) {
         const BOOL isBar = k % 4 == 0;
         if (isBar && beatPx * 4 < kMinBarPixels) continue;
-        fillRect(ctx, CGRectMake(floor(_vp->xForTime((k - ppq0) / bps)) + 0.5, lane.origin.y, 1, lane.size.height), 0xFFFFFF, isBar ? 0.12 : 0.04);
+        fillRect(ctx, CGRectMake(floor(_vp->xForTime((k - ppq0) / bps)) + 0.5, lane.origin.y, 1, lane.size.height), 0xFFFFFF, isBar ? 0.07 : 0.025);
     }
 }
 
 - (void)drawWave:(CGContextRef)ctx lane:(NSRect)lane {
     const CGFloat mid = NSMidY(lane), half = lane.size.height / 2 * kWaveFill;
-    fillRect(ctx, CGRectMake(0, floor(mid), lane.size.width, 1), 0xFFFFFF, 0.08);
+    fillRect(ctx, CGRectMake(0, floor(mid), lane.size.width, 1), 0xFFFFFF, 0.06);
     if (!_mv.wave || _mv.waveCount <= 0) return;
     NSBezierPath* path = [NSBezierPath bezierPath];
     for (CGFloat x = 0; x < lane.size.width; x += 1.0) {
@@ -164,7 +164,7 @@ static void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
         [path lineToPoint:NSMakePoint(x + 0.5, MAX(y1, y0 + 1))];
     }
     path.lineWidth = 1.0;
-    [TTRHex(0x2EE6C5, 0.85) setStroke];
+    [TTRHex(0x4F9C95, 0.80) setStroke];
     [path stroke];
 }
 
@@ -172,21 +172,21 @@ static void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
     double a = 0, b = 0;
     if (!_kernel->previewLoop(&a, &b)) return;
     const CGFloat x0 = _vp->xForTime(a), x1 = _vp->xForTime(b);
-    fillRect(ctx, CGRectMake(x0, lane.origin.y, x1 - x0, lane.size.height), 0x2EE6C5, 0.14);
-    fillRect(ctx, CGRectMake(x0, lane.origin.y, 1.5, lane.size.height), 0x2EE6C5, 0.9);
-    fillRect(ctx, CGRectMake(x1 - 1.5, lane.origin.y, 1.5, lane.size.height), 0x2EE6C5, 0.9);
+    fillRect(ctx, CGRectMake(x0, lane.origin.y, x1 - x0, lane.size.height), 0x4F9C95, 0.10);
+    fillRect(ctx, CGRectMake(x0, lane.origin.y, 1, lane.size.height), 0x4F9C95, 0.55);
+    fillRect(ctx, CGRectMake(x1 - 1, lane.origin.y, 1, lane.size.height), 0x4F9C95, 0.55);
 }
 
 - (void)drawMarkers:(CGContextRef)ctx lane:(NSRect)lane {
     const CGFloat startX = floor(_vp->xForTime(_kernel->previewStart())) + 0.5;
     if (_kernel->previewStart() > 0.0) {
-        fillRect(ctx, CGRectMake(startX, lane.origin.y, 1, lane.size.height), 0xFFFFFF, 0.5);
+        fillRect(ctx, CGRectMake(startX, lane.origin.y, 1, lane.size.height), 0xFFFFFF, 0.3);
         NSBezierPath* flag = [NSBezierPath bezierPath];
         [flag moveToPoint:NSMakePoint(startX, lane.origin.y)];
         [flag lineToPoint:NSMakePoint(startX + 8, lane.origin.y)];
         [flag lineToPoint:NSMakePoint(startX, lane.origin.y + 8)];
         [flag closePath];
-        [TTRHex(0xFFFFFF, 0.8) setFill];
+        [TTRHex(0xFFFFFF, 0.55) setFill];
         [flag fill];
     }
     if (_status == ttr::KernelStatus::Recording) {
@@ -194,9 +194,9 @@ static void fillRect(CGContextRef ctx, CGRect r, uint32_t rgb, CGFloat alpha) {
         fillRect(ctx, CGRectMake(x, lane.origin.y, 1, lane.size.height), 0xFF4D5E, 0.95);
     } else if (_kernel->previewing()) {
         const CGFloat x = floor(_vp->xForTime(_playhead)) + 0.5;
-        fillRect(ctx, CGRectMake(x, lane.origin.y, 1.5, lane.size.height), 0xFFFFFF, 0.9);
+        fillRect(ctx, CGRectMake(x, lane.origin.y, 1, lane.size.height), 0xFFFFFF, 0.6);
     }
-    if (_vp->hasCursor) fillRect(ctx, CGRectMake(floor(_vp->xForTime(_vp->cursorSec)) + 0.5, lane.origin.y, 1, lane.size.height), 0xFFFFFF, 0.5);
+    if (_vp->hasCursor) fillRect(ctx, CGRectMake(floor(_vp->xForTime(_vp->cursorSec)) + 0.5, lane.origin.y, 1, lane.size.height), 0xFFFFFF, 0.2);
 }
 
 - (void)drawRuler:(CGContextRef)ctx {

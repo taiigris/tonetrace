@@ -36,6 +36,7 @@ add_library(tonetrace_core STATIC
   src/analysis/LiveSpectrum.cpp src/analysis/LiveHarmonic.cpp src/analysis/WavePeaks.cpp
   src/analysis/PitchLines.cpp src/analysis/LineFrames.cpp src/analysis/LineTracker.cpp src/analysis/LineOnsets.cpp
   src/analysis/LineBuilder.cpp src/analysis/LiveLines.cpp
+  src/render/GlowProfile.cpp
   src/midi/MidiFileWriter.cpp src/midi/ExportPlanner.cpp
   src/preview/PreviewSynth.cpp
   src/state/StateCodec.cpp src/state/UiSettings.cpp src/core/Logger.cpp src/core/Diagnostics.cpp

@@ -2,12 +2,13 @@
 
 **Tonetrace** is a macOS VST3 effect: record a sample, see it as a spectrogram note map, draw the notes yourself and drag them out as MIDI. It runs on Apple Silicon and Intel (universal), in Ableton Live 12, FL Studio for Mac and other VST3 hosts. Quick start: install from the ZIP (`./install.sh`), rescan plug-ins, load Tonetrace on the audio track, press Record, play the sample, draw notes, drag MIDI into a MIDI track. Everything below is in German.
 
-Tonetrace 4.1.0: ein Sample aufnehmen, jeden Ton als dünne Linie auf seiner exakten Tonhöhe sehen, per Klick auf die Linie als Note übernehmen und als MIDI in eine Spur ziehen.
+Tonetrace 4.2.0: ein Sample aufnehmen, jeden Ton als glühenden Streifen auf seiner exakten Tonhöhe sehen, per Klick auf die Linie als Note übernehmen und als MIDI in eine Spur ziehen.
 
 ![Tonetrace](docs/screenshot.png)
 
 ## Features
 
+- **Glühende Note-Map (4.2)**: jeder Ton ist ein Heat-Streifen mit weiß-gelbem Kern und violettem bis rotem Schein auf fast schwarzem Grund, schmale Klaviatur, flache grüne Notenbalken, kompakte Waveform-Spur (abschaltbar mit **Wave**).
 - **Präzise Note-Map (4.1)**: statt Halbton-Balken zeigt die Map pro Frame nur die spektralen Peaks als dünne, scharfe Linien auf schwarzem Grund, exakt auf ihrer Tonhöhe (Auflösung besser als ±5 ct), mit Waveform und Klaviatur, live während der Aufnahme (bis 120 s). Zeilenraster wie in einer Piano Roll.
 - **Click-to-grab**: ein Klick auf eine Linie legt eine Note über das ganze Liniensegment an. Ziehen zeichnet weiter von Hand.
 - **Fundamentals**: Obertöne werden abgedunkelt, jede Note zeigt nur ihre Grundlinie. **Tuning / Align**: die Stimmung des Samples wird erkannt und das Halbtonraster danach ausgerichtet.
@@ -29,7 +30,7 @@ Tonetrace 4.1.0: ein Sample aufnehmen, jeden Ton als dünne Linie auf seiner exa
 
 ## Installation
 
-Aus der ZIP [`releases/Tonetrace-4.1.0-macOS.zip`](releases/Tonetrace-4.1.0-macOS.zip) (SHA-256 in [`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt); selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`):
+Aus der ZIP [`releases/Tonetrace-4.2.0-macOS.zip`](releases/Tonetrace-4.2.0-macOS.zip) (SHA-256 in [`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt); selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`):
 
 ```bash
 unzip Tonetrace-4.1.0-macOS.zip && cd Tonetrace-4.1.0
@@ -89,6 +90,7 @@ Tonetrace aktivieren und in einen Mixer-Slot laden, auf dem das Sample liegt.
 - **Bearbeiten:** Mitte ziehen verschiebt (alle gewählten Noten gemeinsam), die Ränder (6 px) ändern die Länge, Doppelklick löscht,
   Rechtsklick öffnet das Menü. Klick wählt, `Shift`-Klick schaltet um, `Cmd`-Ziehen zieht ein Lasso.
 - **Quick Grab:** Regler (0 bis 100 %) und **Grab** erzeugen Noten aus den stärksten Linien. Ohne Klick passiert nichts.
+- **Wave** (Standard an): blendet die Waveform-Spur über der Map ein und aus; das Zeitlineal bleibt, die Map wächst nach oben. Der Zustand liegt im Editor-State und kommt beim nächsten Öffnen zurück.
 - **Preview** (Leertaste) spielt Aufnahme und Noten ab der Startmarke im Loop. Im Waveform-Streifen setzt ein Klick den Start,
   Ziehen einen Loop-Bereich. **Sound** = Synth-Lautstärke, **Mix** = Balance Sample/Noten, **Solo** = Eingang stumm,
   **Sync** = Preview folgt dem Host-Transport.
@@ -146,7 +148,7 @@ cd ../..
 |---|---|
 | `./build.sh` | Build, Unit-Tests, UI-Test, Benchmark, Installation, Signierung, validator, Hosttest, Screenshots, Absturzbericht-Prüfung |
 | `./build.sh --no-install` | nur bauen, Unit-Tests und UI-Test |
-| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-4.1.0-macOS.zip` |
+| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-4.2.0-macOS.zip` |
 | `tools/make_icon.sh` | rendert Logo-PNGs, `docs/logo.png` und `assets/logo/Tonetrace.icns` neu (sind eingecheckt) |
 
 Die Version steht nur in `VERSION`, der Build-Hash (git) im About-Overlay und im Diagnosepanel.
@@ -161,6 +163,7 @@ src/capture/   vorab allokierter Aufnahmepuffer (120 s)
 src/midi/      MIDI-Writer (SMF Typ 1) und Export-Planer
 src/preview/   Preview-Synth, lock-freie Notenübergabe
 src/state/     State-Codec (v4, liest v3), Editor-Einstellungen
+src/render/    Glow-Look: Colormap-LUT und Gauss-Profile (reines C++, getestet)
 src/ui/        Cocoa-Oberfläche (TTR*_v1): Map, Waveform, Piano, Controls, Logo (TTRLogo), About-Overlay, Diagnose
 assets/logo/   Logo als SVG, gerenderte PNGs (png/) und Tonetrace.icns
 tests/         Unit-Tests ohne Fremdbibliotheken
@@ -188,6 +191,16 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Das Default-Snap ist jetzt *Onset*: neue Instanzen starten damit, gespeicherte Projekte behalten ihren Wert.
 
 ## Changelog
+
+### 4.2.0 – glühende Note-Map
+
+- Töne sind leuchtende Heat-Streifen: Kern ca. 2 px (weiß-gelb), gaussförmiger Schein bis ca. 8 px und ein dunkelroter/violetter Hauch um starke Linien, additiv überblendet. Farbskala schwarz, dunkelviolett, magenta, rot, orange, gelb, weiß. Die Helligkeit folgt dem Pegel jedes Frames (mit leichter Textur). Schwache Teiltöne und Obertöne (bei *Fundamentals*) sind blasse, dünne violett-blaue Linien. Gain und Range steuern Helligkeit und Kontrast.
+- Das Glow-Rendering läuft in den gecachten Kachel-Bitmaps (vorberechnete Gauss-Profile, Colormap-LUT, 4 Subpixel-Phasen); der Audio-Thread ist unverändert.
+- Zeilenraster fast schwarz: keine Streifen für schwarze Tasten, nur eine dezente Linie bei C und eine sehr leise zwischen E und F. Zeilen-Hover bleibt, dezenter.
+- Klaviatur schmal (14 px Tastenstreifen, C-Labels links davon); die aktive Taste leuchtet türkis. Die Map ist 16 px breiter.
+- Noten sind flache grüne Balken (#2FBF5B, 5 bis 7 px, ohne Rahmen), ausgewählte orange (#FF9F43), die Ghost-Note ein halbtransparenter Balken. Der Name erscheint nur bei Hover oder Auswahl neben dem Balken. Hover-Label und Segment-Outline mit dünner heller Linie.
+- Waveform-Spur kompakt (44 px) in gedämpftem Türkis; neuer Toggle **Wave** im Seitenpanel (Standard an, Editor-State v3, liest v1 und v2).
+- Tests: 90 Unit-Tests (neu: Colormap-LUT, Glow-Profil, Wave-Toggle-State); Versionsprüfungen der Tools folgen der VERSION-Datei.
 
 ### 4.1.0 – präzise Note-Map
 

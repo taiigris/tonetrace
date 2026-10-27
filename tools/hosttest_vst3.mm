@@ -39,7 +39,7 @@ int main(int argc, const char* argv[]) {
         check(classCount == 2 && audioClass != nullptr, "factory has the processor and the controller class");
         if (!audioClass) return 1;
         check(audioClass->subCategoriesString() == "Fx|Analyzer", "category Fx|Analyzer");
-        check(audioClass->version() == "4.1.0" && audioClass->version() == TTR_VERSION_STRING, "the VST3 ClassInfo reports version 4.1.0 (not 2.0.0)");
+        check(audioClass->version() == TTR_VERSION_STRING, "the VST3 ClassInfo reports the VERSION file version");
         bool controllerVersion = false;
         for (const auto& info : classes) if (info.category() == kVstComponentControllerClass) controllerVersion = info.version() == TTR_VERSION_STRING;
         check(controllerVersion, "the controller class reports the same version");

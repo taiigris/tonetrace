@@ -12,6 +12,7 @@
 #include "TestKernel.h"
 #include "TestSignals.h"
 #include "TestUtil.h"
+#include "core/Version.h"
 #include "core/Logger.h"
 #include "core/NoteEdit.h"
 #include "core/TonetraceKernel.h"
@@ -133,7 +134,7 @@ TEST(logger_is_written_by_the_worker_never_by_the_audio_thread) {
     CHECK(log.find("record stop") != std::string::npos);
     CHECK(log.find("first block: 512 frames") != std::string::npos);
     CHECK(log.find("analysis:") != std::string::npos);
-    CHECK(log.find("Tonetrace 4.1.0") != std::string::npos);
+    CHECK(log.find(std::string("Tonetrace ") + TTR_VERSION_STRING) != std::string::npos);
     bool audioWroteLog = false;
     for (std::thread::id id : Logger::instance().writerThreads()) audioWroteLog |= id == audioThread;
     CHECK(!audioWroteLog);  // ... but only through the worker / main thread

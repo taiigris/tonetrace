@@ -19,6 +19,7 @@
 #include "analysis/LiveSpectrum.h"
 #include "analysis/SpectralFrames.h"
 #include "core/NoteEdit.h"
+#include "core/Version.h"
 #import "ui/TTRHeatmap.h"
 #import "ui/TTRMainViewInternal.h"
 #import "ui/TTRNoteMapInternal.h"
@@ -308,15 +309,18 @@ void benchEditor() {
          "after a Gain / Range change (all visible tiles re-rendered): %.2f ms",
          cold, scroll, drawMs, gain);
 
-    // one heatmap tile on its own
+    // one glow tile (128 px, 2x) on its own: all lines of the visible band, white-hot cores, shine and haze
     {
         const MapView mv = kernel->mapView();
+        const SnapshotPtr snap = kernel->snapshot();
         TTRHeatParams hp;
-        hp.data = mv.raw; hp.frames = mv.frames; hp.hopSec = mv.hopSec; hp.reference = mv.peak;
-        hp.scrollSec = 20.0; hp.pxPerSec = 100.0; hp.scrollY = 0.0; hp.rowH = 15.0; hp.width = 128.0; hp.height = ttr::kNumNotes * 15.0; hp.scale = 1.0;
+        hp.linePoints = mv.linePoints; hp.lineCounts = mv.lineCounts; hp.frames = mv.lineFrames; hp.hopSec = mv.lines ? mv.lines->hopSec : mv.hopSec;
+        hp.reference = mv.linePeak; hp.fundamentals = true; hp.hideDrums = true;
+        hp.scrollSec = 20.0; hp.pxPerSec = 100.0; hp.scrollY = 0.0; hp.rowH = 13.0; hp.width = 64.0; hp.height = ttr::kNumNotes * 13.0; hp.scale = 2.0;
+        double bandTop = 0.0, bandHeight = 0.0;
         const double t0 = nowSeconds();
-        for (int i = 0; i < 20; ++i) CGImageRelease(TTRRenderHeatmap(hp));
-        line("- one 128 px heatmap tile (full note range): %.3f ms", (nowSeconds() - t0) / 20.0 * 1e3);
+        for (int i = 0; i < 20; ++i) CGImageRelease(TTRRenderLines(hp, &bandTop, &bandHeight));
+        line("- one 128 px glow tile (2x, band %.0f pt high): %.3f ms", bandHeight, (nowSeconds() - t0) / 20.0 * 1e3);
     }
 
     // idle: what a 5 Hz tick costs
@@ -365,7 +369,7 @@ int main(int argc, const char* argv[]) {
         pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
         for (int i = 1; i + 1 < argc; ++i)
             if (std::string(argv[i]) == "--markdown") gMarkdown = fopen(argv[i + 1], "w");
-        line("# Tonetrace %s - performance", "4.1.0");
+        line("# Tonetrace %s - performance", TTR_VERSION_STRING);
         line("\nMeasured by `tonetrace_bench` on this Mac (%s), Release build, universal binary running natively.", NSProcessInfo.processInfo.operatingSystemVersionString.UTF8String);
         benchMemory();  // first: later benchmarks leave freed heap behind that would hide the allocations
         benchAudio();

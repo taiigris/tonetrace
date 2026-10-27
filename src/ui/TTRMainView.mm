@@ -9,7 +9,7 @@
 const NSSize kTTRDefaultSize = {1100, 640};
 const NSSize kTTRMinimumSize = {820, 520};
 
-const CGFloat kTTRPanelWidth = 190, kTTRMargin = 10, kTTRPianoWidth = 54, kTTRStatusHeight = 26, kTTRScrollHeight = 12;
+const CGFloat kTTRPanelWidth = 190, kTTRMargin = 10, kTTRPianoWidth = 38, kTTRStatusHeight = 26, kTTRScrollHeight = 12, kTTRWaveLaneHeight = 44;
 const double kTTRActiveHz = 30.0, kTTRIdleHz = 5.0;
 static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCenterPitch = 66.0;
 
@@ -23,6 +23,7 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     _vp = std::make_shared<TTRViewport>();
     _vp->pxPerSec = ttr::kBasePixelsPerSecond * _kernel->param(ttr::kParamSpeed);
     _tickHz = 0;
+    _showWave = YES;
     self.wantsLayer = YES;
     self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawOnSetNeedsDisplay;
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -163,6 +164,8 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
                                       action:^{ ttr::LineView v = kernel->lineView(); v.fundamentals = !v.fundamentals; [weak lineViewChanged:v]; }];
     _alignButton = [self addButton:@"Align" kind:TTRButtonKindNormal tip:@"Align to sample: shifts the semitone rows by the sample's detected tuning, so the lines sit in the middle of their rows (notes get the right MIDI pitch)"
                                action:^{ ttr::LineView v = kernel->lineView(); v.alignToSample = !v.alignToSample; [weak lineViewChanged:v]; }];
+    _waveButton = [self addButton:@"Wave" kind:TTRButtonKindNormal tip:@"Show or hide the waveform lane above the map (the time ruler stays)" action:^{ [weak toggleWave]; }];
+    _waveButton.isOn = YES;
     _tuningMinus = [self addButton:@"−" kind:TTRButtonKindNormal tip:@"Tuning trim -5 cent (move the rows down)" action:^{ [weak nudgeTuning:-1]; }];
     _tuningPlus = [self addButton:@"+" kind:TTRButtonKindNormal tip:@"Tuning trim +5 cent (move the rows up), at most 50 cent" action:^{ [weak nudgeTuning:1]; }];
     _tuningReadout = [[TTRReadout_v1 alloc] initWithFrame:NSZeroRect];

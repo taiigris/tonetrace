@@ -67,19 +67,19 @@ static NSString* lengthName(double beats) {
     if ([self hasHoverPoint]) {
         const int row = std::clamp(int(std::lround(_vp->cursorPitch)), ttr::kMinNote, ttr::kMaxNote);
         const CGFloat y = _vp->yTopForPitch(row);
-        CGContextSetRGBFillColor(ctx, 1, 1, 1, 0.075);
+        CGContextSetRGBFillColor(ctx, 1, 1, 1, 0.035);
         CGContextFillRect(ctx, CGRectMake(0, y, b.size.width, _vp->rowH));
         const ttr::LineHit hit = [self hoveredLine];
         if (hit.track >= 0) {
-            [self strokeTrack:hit.track context:ctx width:6.0 color:TTRHex(0x2EE6C5, 0.38)];
-            [self strokeTrack:hit.track context:ctx width:2.4 color:TTRHex(0xFFFFFF, 0.95)];
+            [self strokeTrack:hit.track context:ctx width:4.0 color:TTRHex(0x2EE6C5, 0.16)];
+            [self strokeTrack:hit.track context:ctx width:1.2 color:TTRHex(0xFFFFFF, 0.70)];
         }
     }
     const double age = CACurrentMediaTime() - _flashStart;
     if (_flashTrack >= 0 && age < kFlashSeconds) {
         const CGFloat fade = 1.0 - age / kFlashSeconds;
-        [self strokeTrack:_flashTrack context:ctx width:9.0 color:TTRHex(0xFFFFFF, 0.35 * fade)];
-        [self strokeTrack:_flashTrack context:ctx width:3.0 color:TTRHex(0xFFFFFF, 0.95 * fade)];
+        [self strokeTrack:_flashTrack context:ctx width:7.0 color:TTRHex(0xFFFFFF, 0.22 * fade)];
+        [self strokeTrack:_flashTrack context:ctx width:1.6 color:TTRHex(0xFFFFFF, 0.85 * fade)];
     }
 }
 
@@ -87,15 +87,8 @@ static NSString* lengthName(double beats) {
     const NSRect b = self.bounds;
     ttr::NoteEvent ghost;
     if ([self ghostNote:&ghost]) {
-        const NSRect r = [self rectForNote:ghost];
-        const CGFloat radius = MIN(3.0, r.size.height / 3.0);
-        TTRFillRounded(r, radius, TTRHex(0x2EE6C5, 0.24));
-        NSBezierPath* outline = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 0.75, 0.75) xRadius:radius yRadius:radius];
-        outline.lineWidth = 1.5;
-        const CGFloat dashes[2] = {4, 3};
-        [outline setLineDash:dashes count:2 phase:0];
-        [TTRHex(0x7DFFE8, 0.95) setStroke];
-        [outline stroke];
+        const NSRect r = TTRNoteBarRect([self rectForNote:ghost]);
+        TTRFillRounded(r, MIN(1.5, r.size.height / 3.0), TTRHex(0x2FBF5B, 0.38));
         NSString* label = [self ghostLabel];
         NSFont* font = TTRFont(9, NSFontWeightBold);
         const CGFloat w = TTRTextWidth(label, font) + 2 * kLabelPadX;
@@ -103,8 +96,8 @@ static NSString* lengthName(double beats) {
         if (y < 2) y = NSMaxY(r) + 3;
         x = std::clamp(x, 2.0, std::max(2.0, b.size.width - w - 2));
         const NSRect pill = NSMakeRect(round(x), round(y), w, kGhostLabelHeight);
-        TTRFillRounded(pill, kGhostLabelHeight / 2, TTRHex(0x0F1115, 0.92));
-        TTRStrokeRounded(pill, kGhostLabelHeight / 2, TTRHex(0x2EE6C5, 0.8));
+        TTRFillRounded(pill, kGhostLabelHeight / 2, TTRHex(0x0B0C0E, 0.88));
+        TTRStrokeRounded(pill, kGhostLabelHeight / 2, TTRHex(0xFFFFFF, 0.22));
         TTRDrawText(label, pill, font, TTR_TEXT, NSTextAlignmentCenter);
     }
     NSString* text = [self hasHoverPoint] || _vp->hasCursor ? [self hoverLabel] : nil;
@@ -118,8 +111,8 @@ static NSString* lengthName(double beats) {
     if (y + kLabelHeight > b.size.height - 4) y = c.y - kLabelOffsetY - kLabelHeight;
     y = std::clamp(y, 4.0, std::max(4.0, b.size.height - kLabelHeight - 4));
     const NSRect pill = NSMakeRect(round(x), round(y), w, kLabelHeight);
-    TTRFillRounded(pill, 6, TTRHex(0x0F1115, 0.94));
-    TTRStrokeRounded(pill, 6, TTRHex(0xFFFFFF, 0.55));
+    TTRFillRounded(pill, 6, TTRHex(0x0B0C0E, 0.9));
+    TTRStrokeRounded(pill, 6, TTRHex(0xFFFFFF, 0.28));
     TTRDrawText(text, pill, font, TTR_TEXT, NSTextAlignmentCenter);
 }
 
