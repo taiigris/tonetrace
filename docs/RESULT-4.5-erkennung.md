@@ -2,9 +2,12 @@
 
 Stand: 03.11.2026, Basis `main` @ 3c0d047 (Tonetrace 4.4.1). Plan: `docs/PLAN-4.5-erkennung.md`.
 
-**Entscheidung:** Kein Engine-Wechsel. Weder Basic Pitch noch ein NMF-Prototyp erreichen am Referenzfenster die Go/No-Go-Schwelle aus Schritt 1,
-und auf den Techno-Mixes ist Basic Pitch schlechter als Classic. Classic (4.4.1) bleibt die einzige Engine; Schritte 2 bis 6 (Integration, Release 4.5.0)
-wurden nicht begonnen. Am Plugin hat sich nichts geändert.
+**Entscheidung (Schritt 1):** No-Go. Weder Basic Pitch roh noch ein NMF-Prototyp erreichen am Referenzfenster die Go/No-Go-Schwelle,
+und auf den Techno-Mixes ist Basic Pitch roh schlechter als Classic.
+
+**Nachtrag:** Auf Wunsch trotzdem umgesetzt (Schritte 2 bis 6) als optionale Engine **Neural** in 4.5.0. Mit eigenem Decoder und den Tonetrace-Regeln
+erreicht sie F2 72 % und 5 False Positives, verfehlt aber die Abnahme (3 von 8 Zeilen, Techno-Dauer-F1, alte Mixes). Classic bleibt Standard.
+Zahlen: `docs/ACCURACY.md`, Abschnitt 4.5.0.
 
 ## Schritt 0 – Basic Pitch geprüft
 

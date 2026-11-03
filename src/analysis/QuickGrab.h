@@ -1,5 +1,6 @@
 // Quick Grab: starting-point notes from the strongest lines of a spectrogram.
 #pragma once
+#include <string>
 #include <vector>
 
 #include "analysis/PitchLines.h"
@@ -21,5 +22,17 @@ std::vector<NoteEvent> quickGrabFromLines(const PitchLines& lines, float amount,
 
 // Quick Grab of a document: always the salience analysis of the spectrogram (as in v3), drum segments filtered out.
 std::vector<NoteEvent> quickGrabSnapshot(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, TaskControl* control = nullptr);
+
+enum class GrabEngine { Classic, Neural };
+
+struct GrabOutcome {
+    std::vector<NoteEvent> notes;
+    GrabEngine used = GrabEngine::Classic;
+    std::string fallbackReason;  // set when Neural was asked for but Classic ran
+};
+
+// Quick Grab with the chosen engine; Neural falls back to Classic (never fails) when the model or the audio is missing.
+GrabOutcome quickGrabWithEngine(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, GrabEngine engine,
+                                TaskControl* control = nullptr);
 
 }  // namespace ttr

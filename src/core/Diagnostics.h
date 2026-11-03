@@ -27,6 +27,7 @@ struct DiagnosticsSnapshot {
     double recordedSeconds = 0.0;
     double captureMegabytes = 0.0;
     std::string lastMidiPath, lastError;
+    std::string neuralEngine;   // status of the neural model ("not loaded yet", "ready" or why it failed)
     // UI side (filled by the view)
     double uiFps = 0.0, uiFrameMs = 0.0;
 };

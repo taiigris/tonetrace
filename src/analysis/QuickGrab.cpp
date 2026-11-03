@@ -7,6 +7,7 @@
 #include "analysis/LowBand.h"
 #include "analysis/SpectralFrames.h"
 #include "analysis/SustainGrab.h"
+#include "analysis/ml/NeuralEngine.h"
 
 namespace ttr {
 
@@ -52,6 +53,23 @@ std::vector<NoteEvent> quickGrabSnapshot(const Snapshot& snapshot, float amount,
     std::vector<NoteEvent> notes = sustainGrabNotes(spec, spec.low.empty() ? low : spec.low, amount, {snapshot.bpm, snapshot.startPpq}, control);
     for (NoteEvent& n : notes) { n.strength = 1.0f; n.selected = false; }
     return notes;
+}
+
+GrabOutcome quickGrabWithEngine(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, GrabEngine engine,
+                                TaskControl* control) {
+    GrabOutcome outcome;
+    if (engine == GrabEngine::Neural) {
+        NeuralGrab neural = neuralGrabSnapshot(snapshot, amount, filter, control);
+        if (neural.ok) {
+            outcome.notes = std::move(neural.notes);
+            outcome.used = GrabEngine::Neural;
+            return outcome;
+        }
+        if (control && control->cancelled()) return outcome;
+        outcome.fallbackReason = neural.reason;
+    }
+    outcome.notes = quickGrabSnapshot(snapshot, amount, filter, tuningCents, control);
+    return outcome;
 }
 
 }  // namespace ttr

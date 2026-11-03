@@ -20,7 +20,7 @@
     TTRKnob_v1 *_gainKnob, *_rangeKnob, *_soundKnob, *_mixKnob;
     TTRSlider_v1* _quickGrabSlider;
     TTRButton_v1 *_speedMinus, *_speedPlus, *_hideDrumsButton, *_magnetButton, *_grabButton, *_resetButton, *_clearButton, *_previewButton, *_soloButton, *_saveButton;
-    TTRButton_v1 *_waveButton, *_fundamentalsButton, *_alignButton, *_tuningMinus, *_tuningPlus;
+    TTRButton_v1 *_waveButton, *_fundamentalsButton, *_alignButton, *_tuningMinus, *_tuningPlus, *_engineButton;
     TTRReadout_v1 *_tuningReadout, *_bridgeReadout;
     TTRButton_v1 *_grabOnClickButton, *_samplerButton, *_samplerDragButton;
     TTRButton_v1 *_helpButton, *_viewButton, *_optionsButton;

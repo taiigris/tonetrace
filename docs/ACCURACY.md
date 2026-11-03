@@ -1,4 +1,92 @@
-# Tonetrace 4.4.1 - Erkennungsgenauigkeit (4.4.0-Messung darunter, Abschnitt "4.4.1 gegen 4.4.0" zuerst)
+# Tonetrace 4.5.0 - Erkennungsgenauigkeit (Engine Neural gegen Classic zuerst, darunter 4.4.1 und 4.4.0)
+
+## 4.5.0: Engine Neural gegen Classic
+
+Neural = Basic Pitch (Spotify, Apache-2.0) über CoreML (nur CPU) plus eigener Decoder und die Tonetrace-Regeln (`src/analysis/ml/`). Classic = 4.4.1, unverändert.
+Gemessen mit `tools/accuracy.sh` (`accuracy --engine neural|classic mixes | track | noise`). Abgestimmt wurden nur generische Werte: Aktivierungsschwelle
+0,6 (Quick Grab 0 %) bis 0,35 (100 %), Halten bei 45 % davon, Teilung gehaltener Noten nur bei Onset >= 0,85, Brücken bis 1/8 Note, Mindestlänge 1/16 Note.
+Rohwerte von Basic Pitch ohne diese Regeln: `docs/RESULT-4.5-erkennung.md`.
+
+**Abnahme (Plan 4.5, Abschnitt 4) – Neural wird nicht Standard:**
+
+| Kriterium | Ziel | Classic 4.4.1 | Neural 4.5.0 | erreicht |
+|---|---|---|---|---|
+| Referenz-Track: F1-Bass | >= 80 % in <= 2 Stücken | 89 % / 1 | 89 % / 1 | ja |
+| Referenz-Track: F2 | >= 70 % | 24 % | 72 % | ja |
+| Referenz-Track: gefundene Zeilen | >= 6 von 8 | 2 | 3 | nein |
+| Referenz-Track: False Positives | <= 25 | 11 | 5 | ja |
+| Techno-Mixes | Fragm. <= 1,2 und Dauer-F1 >= 0,85 in allen vier | Fragm. ja, Dauer-F1 1 von 4 | Fragm. ja (<= 1,04), Dauer-F1 0 von 4 bei 100 % | nein |
+| Alte Mixes | F1 >= 4.4.1 in allen 27 Zeilen | – | 17 von 27 (schlechter: chords und bass bei 50/100 %, drums+melody, full mix) | nein |
+| Rauschen (0,3 / 1 / 2,5 s) | nicht mehr als 4.4.1 | 0 / 4 / 22 | 0 / 2 / 6 | ja |
+| Performance | Echtzeitfaktor <= 0,05 | 0,011 | 0,015 (60 s in 0,87 s, CPU) | ja |
+
+Rauschen hier mit dem festen Generator von `accuracy noise` (andere Zahlen als der Kurztest von 4.4: 2 / 9 / 29).
+
+### Referenz-Track (Überdeckung % / Stücke)
+
+| Zeile | 156,83 s Classic | 156,83 s Neural | 160,41 s Classic | 160,41 s Neural | 38,62 s Classic | 38,62 s Neural |
+|---|---|---|---|---|---|---|
+| F1 | 89 / 1 | 89 / 1 | 98 / 1 | 100 / 1 | 6 / 2 | 43 / 1 |
+| F2 | 24 / 4 | 72 / 7 | 39 / 7 | 67 / 8 | 2 / 1 | 32 / 6 |
+| C2 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| A#1 | 17 / 1 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| B1 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 100 / 1 | 0 / 0 |
+| C3 | 0 / 0 | 22 / 2 | 0 / 0 | 6 / 1 | 0 / 0 | 25 / 1 |
+| F3 | 56 / 4 | 61 / 4 | 74 / 5 | 73 / 3 | 68 / 3 | 42 / 3 |
+| G3/G#3 | 38 / 3 | 38 / 2 | 19 / 4 | 30 / 2 | 14 / 1 | 14 / 1 |
+| Zeilen / FP | 2 / 11 | 3 / 5 | 2 / 11 | 3 / 5 | 2 / 25 | 0 / 14 |
+
+Neural trennt F2 von F1 (die Stärke des Modells), findet die kurzen Bassnoten C2, A#1 und B1 aber in keinem Fenster.
+
+### Synthetische Mixes
+
+| Set | Mix | Quick Grab | Note-F1 Classic | Note-F1 Neural | Dauer-F1 Classic | Dauer-F1 Neural | Fragm. Classic | Fragm. Neural |
+|---|---|---|---|---|---|---|---|---|
+| old | melody | 0 % | 0.936 | 1.000 | 0.894 | 1.000 | 1.00 | 1.00 |
+| old | melody | 50 % | 0.936 | 1.000 | 0.894 | 1.000 | 1.00 | 1.00 |
+| old | melody | 100 % | 0.936 | 1.000 | 0.894 | 1.000 | 1.00 | 1.00 |
+| old | chords | 0 % | 1.000 | 1.000 | 1.000 | 1.000 | 1.00 | 1.00 |
+| old | chords | 50 % | 1.000 | 0.900 | 1.000 | 0.900 | 1.00 | 1.00 |
+| old | chords | 100 % | 1.000 | 0.878 | 1.000 | 0.878 | 1.00 | 1.00 |
+| old | bass | 0 % | 1.000 | 1.000 | 1.000 | 1.000 | 1.00 | 1.00 |
+| old | bass | 50 % | 1.000 | 0.971 | 1.000 | 0.971 | 1.00 | 1.00 |
+| old | bass | 100 % | 1.000 | 0.694 | 1.000 | 0.694 | 1.00 | 1.00 |
+| old | vibrato | 0 % | 0.980 | 1.000 | 0.980 | 1.000 | 1.00 | 1.00 |
+| old | vibrato | 50 % | 0.980 | 1.000 | 0.980 | 1.000 | 1.00 | 1.00 |
+| old | vibrato | 100 % | 0.980 | 1.000 | 0.980 | 1.000 | 1.00 | 1.00 |
+| old | detune-30ct | 0 % | 0.936 | 1.000 | 0.894 | 1.000 | 1.00 | 1.00 |
+| old | detune-30ct | 50 % | 0.936 | 1.000 | 0.894 | 1.000 | 1.00 | 1.00 |
+| old | detune-30ct | 100 % | 0.936 | 1.000 | 0.894 | 1.000 | 1.00 | 1.00 |
+| old | detune+30ct | 0 % | 0.958 | 1.000 | 0.980 | 1.000 | 1.00 | 1.00 |
+| old | detune+30ct | 50 % | 0.958 | 1.000 | 0.980 | 1.000 | 1.00 | 1.00 |
+| old | detune+30ct | 100 % | 0.958 | 1.000 | 0.980 | 1.000 | 1.00 | 1.00 |
+| old | noise | 0 % | 0.980 | 1.000 | 0.980 | 1.000 | 1.00 | 1.00 |
+| old | noise | 50 % | 0.960 | 1.000 | 0.960 | 1.000 | 1.00 | 1.00 |
+| old | noise | 100 % | 0.873 | 0.980 | 0.873 | 0.980 | 1.00 | 1.00 |
+| old | drums+melody | 0 % | 0.939 | 0.746 | 0.939 | 0.746 | 1.00 | 1.00 |
+| old | drums+melody | 50 % | 0.939 | 0.595 | 0.939 | 0.595 | 1.00 | 1.00 |
+| old | drums+melody | 100 % | 0.939 | 0.394 | 0.939 | 0.394 | 1.00 | 1.00 |
+| old | full mix | 0 % | 0.754 | 0.613 | 0.820 | 0.608 | 1.00 | 1.00 |
+| old | full mix | 50 % | 0.742 | 0.591 | 0.806 | 0.549 | 1.00 | 1.00 |
+| old | full mix | 100 % | 0.742 | 0.487 | 0.806 | 0.462 | 1.00 | 1.00 |
+| techno | techno-125 | 0 % | 0.585 | 0.697 | 0.820 | 0.855 | 1.04 | 1.02 |
+| techno | techno-125 | 50 % | 0.576 | 0.691 | 0.808 | 0.803 | 1.04 | 1.00 |
+| techno | techno-125 | 100 % | 0.576 | 0.721 | 0.808 | 0.759 | 1.04 | 1.00 |
+| techno | techno-128 | 0 % | 0.575 | 0.748 | 0.854 | 0.865 | 1.18 | 1.00 |
+| techno | techno-128 | 50 % | 0.571 | 0.696 | 0.849 | 0.838 | 1.18 | 1.00 |
+| techno | techno-128 | 100 % | 0.571 | 0.690 | 0.849 | 0.694 | 1.18 | 1.00 |
+| techno | techno-130 | 0 % | 0.448 | 0.639 | 0.762 | 0.825 | 1.13 | 1.04 |
+| techno | techno-130 | 50 % | 0.441 | 0.613 | 0.734 | 0.783 | 1.13 | 1.04 |
+| techno | techno-130 | 100 % | 0.441 | 0.682 | 0.734 | 0.765 | 1.13 | 1.00 |
+| techno | techno-135 | 0 % | 0.601 | 0.714 | 0.865 | 0.825 | 1.11 | 1.03 |
+| techno | techno-135 | 50 % | 0.589 | 0.687 | 0.856 | 0.753 | 1.11 | 1.00 |
+| techno | techno-135 | 100 % | 0.589 | 0.691 | 0.856 | 0.691 | 1.11 | 1.00 |
+
+**Ergebnis:** Neural ist besser auf den reinen Tonsignalen (melody, vibrato, detune, noise) und beim Note-F1 der Techno-Mixes (Onsets kommen nicht zu spät),
+schlechter wo Drums dazukommen (drums+melody, full mix) und bei Quick Grab 100 %, wo die niedrige Schwelle Obertöne und Drum-Reste als Noten zulässt.
+
+**Nebenbefund:** Classic misst im Fenster 156,83 s heute F2 24 % / 4 Stücke statt der unten für 4.4.1 genannten 36 % / 5 (Quellstand unverändert; vermutlich ein anderer Messlauf).
+
 
 Quick Grab arbeitet in 4.4 mit der neuen **Halte-Erkennung** (`src/analysis/SustainGrab.cpp`) statt mit der Segmentierung aus 4.3, die gehaltene Töne an jedem
 Drum-Schlag und jedem Sidechain-Dip zerschnitt. Dieses Dokument misst 4.4 gegen 4.3 auf synthetischen Mixes mit Ground Truth und an einem echten Track

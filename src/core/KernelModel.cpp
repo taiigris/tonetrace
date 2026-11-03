@@ -173,7 +173,17 @@ int TonetraceKernel::quickGrab() {
     if (status() != KernelStatus::Idle) return 0;
     const SnapshotPtr base = snapshot();
     if (!base || !base->spectrogram) return 0;
-    return mergeGrabbed(base, quickGrabSnapshot(*base, param(kParamQuickGrab), filterSettings(), tuningOffsetCents()));
+    const GrabEngine engine = lineView().isNeural ? GrabEngine::Neural : GrabEngine::Classic;
+    GrabOutcome outcome = quickGrabWithEngine(*base, param(kParamQuickGrab), filterSettings(), tuningOffsetCents(), engine);
+    reportFallback(outcome);
+    return mergeGrabbed(base, std::move(outcome.notes));
+}
+
+// Neural was chosen but Classic ran: log it and tell the user once per grab (never an error, the notes are still there).
+void TonetraceKernel::reportFallback(const GrabOutcome& outcome) {
+    if (outcome.fallbackReason.empty()) return;
+    logWarn(instanceId_, "neural engine unavailable (%s), Quick Grab used Classic", outcome.fallbackReason.c_str());
+    notice("Neural engine unavailable (" + outcome.fallbackReason + ") - Quick Grab used Classic", NoticeLevel::Warning);
 }
 
 // Adds Quick Grab notes as one undo step; the document may have changed while the grab was computed.
@@ -192,7 +202,7 @@ int TonetraceKernel::mergeGrabbed(const SnapshotPtr& base, std::vector<NoteEvent
 }
 
 LineView TonetraceKernel::lineView() const {
-    return {lineFundamentals_.load(), lineAlign_.load(), lineTrim_.load(), lineSpectrum_.load(), lineGrabOnClick_.load(), lineSamplerOnDrag_.load()};
+    return {lineFundamentals_.load(), lineAlign_.load(), lineTrim_.load(), lineSpectrum_.load(), lineGrabOnClick_.load(), lineSamplerOnDrag_.load(), lineNeural_.load()};
 }
 
 void TonetraceKernel::setLineView(const LineView& view) {
@@ -201,6 +211,7 @@ void TonetraceKernel::setLineView(const LineView& view) {
     lineSpectrum_.store(view.isSpectrum);
     lineGrabOnClick_.store(view.grabOnClick);
     lineSamplerOnDrag_.store(view.samplerOnDrag);
+    lineNeural_.store(view.isNeural);
     lineTrim_.store(std::isfinite(view.trimCents) ? std::clamp(view.trimCents, -kMaxTrimCents, kMaxTrimCents) : 0.0f);
 }
 

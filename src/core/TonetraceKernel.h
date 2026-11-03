@@ -9,6 +9,7 @@
 
 #include "analysis/LiveLines.h"
 #include "analysis/LiveSpectrum.h"
+#include "analysis/QuickGrab.h"
 #include "analysis/TaskControl.h"
 #include "analysis/WavePeaks.h"
 #include "capture/CaptureBuffer.h"
@@ -60,12 +61,13 @@ struct LineView {
     bool isSpectrum = true;       // View: the full spectrogram (default) instead of the thin lines
     bool grabOnClick = false;     // a click exactly on a strong line grabs it as a note
     bool samplerOnDrag = false;   // a successful Drag MIDI also asks the Live bridge for a sampler track
+    bool isNeural = false;        // 4.5: Quick Grab with the neural engine (falls back to Classic without a model)
 };
 constexpr float kMaxTrimCents = 50.0f;
 
 // The editor state (UiSettings) and the kernel's line view carry the same settings.
 inline LineView lineViewOf(const UiSettings& s) {
-    return {s.fundamentals, s.alignToSample, s.tuningTrim, s.isSpectrum, s.grabOnClick, s.samplerOnDrag};
+    return {s.fundamentals, s.alignToSample, s.tuningTrim, s.isSpectrum, s.grabOnClick, s.samplerOnDrag, s.isNeural};
 }
 inline void storeLineView(const LineView& v, UiSettings* s) {
     s->fundamentals = v.fundamentals;
@@ -74,6 +76,7 @@ inline void storeLineView(const LineView& v, UiSettings* s) {
     s->isSpectrum = v.isSpectrum;
     s->grabOnClick = v.grabOnClick;
     s->samplerOnDrag = v.samplerOnDrag;
+    s->isNeural = v.isNeural;
 }
 
 class TonetraceKernel {
@@ -172,6 +175,7 @@ private:
     void drainAudioEvents();
     bool applyHistoryLocked(bool isUndo);  // requires mutateMutex_
     int mergeGrabbed(const SnapshotPtr& base, std::vector<NoteEvent> grabbed);  // adds notes as one undo step; returns how many
+    void reportFallback(const GrabOutcome& outcome);  // Neural asked for, Classic ran: log + notice
     void mixPreview(float* const* channels, int numChannels, int frames);
     double syncedPosition() const;
 
@@ -207,7 +211,7 @@ private:
     LiveSpectrum live_;
     PeakBuilder livePeaks_;
     LiveLines liveLines_;
-    std::atomic<bool> lineAlign_{true}, lineFundamentals_{false}, lineSpectrum_{true}, lineGrabOnClick_{false}, lineSamplerOnDrag_{false};
+    std::atomic<bool> lineAlign_{true}, lineFundamentals_{false}, lineSpectrum_{true}, lineGrabOnClick_{false}, lineSamplerOnDrag_{false}, lineNeural_{false};
     std::atomic<float> lineTrim_{0.0f};
     std::thread linesThread_;
     TaskControl linesControl_;

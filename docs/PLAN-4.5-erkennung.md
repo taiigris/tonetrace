@@ -1,7 +1,7 @@
 # Plan 4.5 – Neue Tonerkennung (lernbasiert)
 
 Stand: 27.10.2026, Basis `main` @ 3c0d047 (Tonetrace 4.4.1).
-**Ergebnis (03.11.2026): No-Go, Classic bleibt. Siehe `docs/RESULT-4.5-erkennung.md`.**
+**Ergebnis (03.11.2026): Go/No-Go verfehlt, trotzdem als optionale Engine Neural in 4.5.0 umgesetzt; Abnahme verfehlt, Classic bleibt Standard. Siehe `docs/RESULT-4.5-erkennung.md` und `docs/ACCURACY.md`.**
 Umfang: etwa ein Arbeitstag. Die Schritte bauen aufeinander auf, jeder endet mit einem prüfbaren Ergebnis.
 
 ## 1. Ausgangslage

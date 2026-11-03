@@ -24,7 +24,8 @@ set(VST3_PLUGIN_SOURCES
 smtg_add_vst3plugin_with_pkgname(Tonetrace_vst3 Tonetrace SOURCES_LIST ${VST3_PLUGIN_SOURCES})
 target_include_directories(Tonetrace_vst3 PRIVATE src)
 target_compile_features(Tonetrace_vst3 PUBLIC cxx_std_17)
-target_link_libraries(Tonetrace_vst3 PRIVATE sdk tonetrace_ui tonetrace_core ${COREAUDIO})
+target_link_libraries(Tonetrace_vst3 PRIVATE sdk tonetrace_ui tonetrace_ml tonetrace_core ${COREAUDIO})
+add_dependencies(Tonetrace_vst3 tonetrace_model)
 # the categories of the Cocoa views are not referenced statically
 target_link_options(Tonetrace_vst3 PRIVATE -Wl,-force_load,$<TARGET_FILE:tonetrace_ui>)
 # The SDK's bundle helper only knows Xcode; the Makefile build gets an explicit Info.plist.
@@ -33,7 +34,10 @@ set_target_properties(Tonetrace_vst3 PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE
 # Bundle icon (committed, rendered by tools/make_icon.sh): Contents/Resources/Tonetrace.icns, referenced by CFBundleIconFile.
 add_custom_command(TARGET Tonetrace_vst3 POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:Tonetrace_vst3>/Resources"
-  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/assets/logo/Tonetrace.icns" "$<TARGET_BUNDLE_CONTENT_DIR:Tonetrace_vst3>/Resources/Tonetrace.icns")
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/assets/logo/Tonetrace.icns" "$<TARGET_BUNDLE_CONTENT_DIR:Tonetrace_vst3>/Resources/Tonetrace.icns"
+  # 4.5: the compiled neural model (Basic Pitch) next to the icon; found by NeuralTranscriber.mm
+  COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_BUNDLE_CONTENT_DIR:Tonetrace_vst3>/Resources/nmp.mlmodelc"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory "${TONETRACE_MODEL_OUT}" "$<TARGET_BUNDLE_CONTENT_DIR:Tonetrace_vst3>/Resources/nmp.mlmodelc")
 
 # ---- headless VST3 host test (SDK hosting classes) ----
 set(VST3_SRC "${TONETRACE_VST3_SDK_DIR}/public.sdk/source")

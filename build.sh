@@ -41,6 +41,10 @@ step "Unit tests (CTest)"
 (cd build && ctest --output-on-failure) | tee build/unittests.log
 (cd build && ./tonetrace_tests | tail -1)
 
+step "Neural engine test (CoreML model: octave over a held bass, silence, speed)"
+build/tonetrace_mltest 2>&1 | grep -v "^     note" | tee build/mltest.log | tail -3
+grep -q "MLTEST PASSED" build/mltest.log
+
 step "Live bridge test (Python, mock of the Live API)"
 python3 -I -B -m unittest discover -s tests/bridge 2>&1 | tee build/bridgetest.log | tail -4
 grep -q "^OK" build/bridgetest.log
@@ -97,6 +101,7 @@ if [[ $DO_ZIP -eq 1 ]]; then
   ditto --norsrc --noextattr "$VST3_DIR/$VST3_BUNDLE" "$STAGE/$VST3_BUNDLE"
   rsync -a --exclude __pycache__ --exclude '*.pyc' live-bridge/TonetraceBridge "$STAGE/"
   cp tools/release/README.txt "$STAGE/README.txt"
+  cp THIRD_PARTY_LICENSES.md "$STAGE/"
   cp docs/logo.png "$STAGE/Tonetrace-Logo.png"
   cp tools/release/install.sh uninstall.sh "$STAGE/"
   chmod +x "$STAGE/install.sh" "$STAGE/uninstall.sh"

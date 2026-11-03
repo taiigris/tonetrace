@@ -12,6 +12,7 @@ Tonetrace 4.4.1: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale
 - **Freie Noten (4.3)**: Klick oder Ziehen zeichnet immer eine neue Note, standardmäßig auf das Raster 1/16 gerastet, Magnet aus. Verschieben und Längenänderung sind nie an Linien oder Onsets gebunden. Noten sind dünne türkis-grüne Balken (5 bis 6 px).
 - **Breitformat-Oberfläche (4.4)**: 1280 × 720 (Minimum 1024 × 600), Kopfzeile mit Status, links Klaviatur und große Map, schmale rechte Leiste mit Drag MIDI unten; alles ohne Scrollen, die Zeitachse füllt standardmäßig die Breite (**Fit**). Sekundäre Schalter liegen im Optionen-Popover.
 - **Halte-Erkennung (4.4)**: Quick Grab liefert wenige, lange Noten statt Fragmenten: gehaltene Töne laufen durch Drum-Schläge und Sidechain-Pumpen, der Bass-Grundton wird aus langen Fenstern bestimmt, Kick-Streifen werden nicht zu Noten. Messung in [`docs/ACCURACY.md`](docs/ACCURACY.md).
+- **Engine Neural (4.5, optional)**: im Optionen-Popover schaltet **Engine: Classic / Neural** Quick Grab auf ein trainiertes Transkriptionsmodell (Basic Pitch von Spotify, CoreML, läuft lokal auf der CPU). Es trennt eine Oktave über einem gehaltenen Bass deutlich besser als Classic und fragmentiert weniger, verliert aber auf dichten Mixes mit Drums. Standard bleibt **Classic**; ohne Modell oder ohne gespeichertes Audio (über 60 s) fällt Neural automatisch auf Classic zurück. Messung in [`docs/ACCURACY.md`](docs/ACCURACY.md).
 - **New Sampler Track (4.3)**: in Ableton Live legt die **Tonetrace Bridge** (ein MIDI Remote Script) per Knopfdruck eine MIDI-Spur mit Simpler und einem Clip mit den Noten an.
 - **Glühende Note-Map (4.2, jetzt Ansicht Lines)**: jeder Ton ist ein Heat-Streifen mit weiß-gelbem Kern und violettem bis rotem Schein auf fast schwarzem Grund, schmale Klaviatur, flache grüne Notenbalken, kompakte Waveform-Spur (abschaltbar mit **Wave**).
 - **Präzise Note-Map (4.1)**: statt Halbton-Balken zeigt die Map pro Frame nur die spektralen Peaks als dünne, scharfe Linien auf schwarzem Grund, exakt auf ihrer Tonhöhe (Auflösung besser als ±5 ct), mit Waveform und Klaviatur, live während der Aufnahme (bis 120 s). Zeilenraster wie in einer Piano Roll.
@@ -26,7 +27,7 @@ Tonetrace 4.4.1: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale
 - Sichtbare Knöpfe und Kontextmenü für Undo, Redo, Delete, Duplicate (Hosts fangen manche Tasten ab).
 - **About-Overlay** (Klick auf das Logo) und **Diagnosepanel** mit Version, Host, DSP-Last, Log-Ordner und Berichtsfunktion.
 - State speichert Spektrogramm, Audio, Noten und Parameter, Projekte aus Version 3 und 4.0 laden weiter (die Linien werden dabei im Hintergrund neu berechnet).
-- Kein JUCE und kein Fremdcode außer dem VST3 SDK (nur die VST3-Hülle nutzt es).
+- Kein JUCE; Fremdcode nur das VST3 SDK (VST3-Hülle) und das Basic-Pitch-Modell (Engine Neural, Apache-2.0).
 
 ## Systemanforderungen
 
@@ -179,6 +180,7 @@ Die Version steht nur in `VERSION`, der Build-Hash (git) im About-Overlay und im
 ```
 src/vst3/      VST3: Processor, Controller (Parameter, State), Entry/Factory, NSView-Editor
 src/core/      Kernel (plattformneutral): Capture, Preview, Analyse-Thread, Notenmodell, Snapshot, Diagnose, Log
+src/analysis/ml/  Engine Neural: Modell-Schnittstelle und Fensterung, Resampler, NoteDecoder, NeuralEngine, CoreML-Anbindung (NeuralTranscriber.mm)
 src/analysis/  Live-Spektrum, Pitch-Lines (Mehrfachauflösung, Tracking, Onsets, Tuning), Waveform-Peaks, HPSS/Drum-Filter, Noten-Analyse, Quick Grab (Halte-Erkennung: SustainGrab, SustainRuns, LowBand, BeatHits), Tonart, FFT
 src/capture/   vorab allokierter Aufnahmepuffer (120 s)
 src/midi/      MIDI-Writer (SMF Typ 1) und Export-Planer
@@ -188,6 +190,7 @@ src/preview/   Preview-Synth, lock-freie Notenübergabe
 src/state/     State-Codec (v4, liest v3), Editor-Einstellungen
 src/render/    Glow-Look: Colormap-LUT und Gauss-Profile (reines C++, getestet)
 src/ui/        Cocoa-Oberfläche (TTR*_v1): Map, Waveform, Piano, Controls, Logo (TTRLogo), About-Overlay, Diagnose
+assets/ml/     Basic-Pitch-Modell (CoreML-Paket, wird beim Bauen zu nmp.mlmodelc kompiliert)
 assets/logo/   Logo als SVG, gerenderte PNGs (png/) und Tonetrace.icns
 tests/         Unit-Tests ohne Fremdbibliotheken, tests/bridge: Python-Test des Remote Scripts mit Mock der Live-API
 tools/         Hosttest, UI-Test, Benchmark, Screenshot-Tool, Logo-Renderer, compare_v3 und accuracy (Genauigkeit), check_live_log.sh, Release-Dateien
@@ -209,6 +212,7 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Die Live-Trennung bei Hide drums kennt nur die Vergangenheit und weicht leicht vom Ergebnis nach dem Stoppen ab.
 - Quick Grab trennt Halbtöne im Bass (C1 bis B2) mit langen Fenstern (bis 0,74 s); die Kanten tiefer Töne sind deshalb bis ca. 100 ms unschärfer. Bei Aufnahmen aus einem geladenen State ohne Audio (über 60 s) fehlt die lange Analyse, Quick Grab fällt im Bass auf die Auflösung von 4.3 zurück.
 - Die Halte-Erkennung erreicht auf dichten echten Tracks nicht das Niveau des synthetischen Tests (Dauer-F1 der Techno-Mixes 0,74 bis 0,86, Ziel 0,85 in zwei von vier Mixes erreicht; Referenz-Track: F1-Bass in einem Stück, F2 und kurze Bassnoten fehlen): Pad-Töne unter Bass-Obertönen gehen verloren, Bass-Onsets kommen durch die langen Fenster bis ca. 100 ms zu spät. Reines weißes Rauschen erzeugt weiterhin einzelne Kurznoten (weniger als in 4.3). Details und Zahlen in `docs/ACCURACY.md`.
+- Engine Neural: findet auf dem Referenz-Track 3 von 8 Zeilen (Abnahme 6), kurze Bassnoten (C2, A#1, B1) gar nicht; auf Mixes mit Drums (drums+melody, full mix) und bei Quick Grab 100 % liegt das F1 unter Classic. Sie analysiert nur das gespeicherte Audio (bis 60 s) und erst nach dem Stopp, nicht live. CoreML läuft bewusst nur auf der CPU (auf GPU / Neural Engine rechnet das Modell in float16 und meldet bei digitaler Stille alle Tasten).
 - Die Linien werden nicht im State gespeichert: bei Aufnahmen über 60 s, deren Audio nicht im State liegt, zeigt die Map nach dem Laden die alte Halbton-Heatmap.
 - Ein Oberton, der genau auf der Tonhöhe einer anderen Note liegt (z. B. eine Melodienote zwei Oktaven über dem Bass), wird mit Fundamentals abgedunkelt: dann Fundamentals ausschalten.
 - Preview und MIDI bleiben bei A = 440 Hz, auch wenn das Raster um das erkannte Tuning verschoben ist.
@@ -217,6 +221,13 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Im Spectrum sind Töne unter ca. 125 Hz durch das lange Fenster zeitlich verschmiert (wie ein Bassanschlag in jedem Spektrogramm).
 
 ## Changelog
+
+### 4.5.0 – Engine Neural (optional)
+
+- **Erkennung:** zweite Quick-Grab-Engine **Neural** mit dem Modell Basic Pitch (Spotify, Apache-2.0) über CoreML, im Optionen-Popover umschaltbar (**Engine: Classic / Neural**, Editor-State v5, ältere States laden mit Classic). Eigener Decoder (Hysterese, Onset-Spitzen, Brücken bis 1/8 Note), danach die Tonetrace-Regeln: Mindestlänge 1/16 bei Host-BPM, keine kurzen tiefen Noten auf dem Kick, der Quick-Grab-Regler setzt die Aktivierungsschwelle (0 % = 0,6, 100 % = 0,35).
+- **Messung:** Referenz-Track F2 72 % statt 24 %, F1 in einem Stück, False Positives 5 statt 11; Techno-Mixes Note-F1 0,61 bis 0,75 statt 0,44 bis 0,60 und Fragmentierung höchstens 1,04; weißes Rauschen weniger Noten. Die Abnahme für den Standard (6 von 8 Zeilen, Dauer-F1 >= 0,85 in allen Techno-Mixes, alte Mixes >= 4.4.1) ist verfehlt, deshalb bleibt **Classic Standard**. Details in `docs/ACCURACY.md`.
+- **Robustheit:** ohne Modell, bei CoreML-Fehlern oder ohne gespeichertes Audio läuft Classic, mit Hinweis-Banner und Eintrag im Log; das Diagnosepanel zeigt den Status der Engine. Das Modell lädt erst beim ersten Neural-Grab im Hintergrund-Thread, der Audio-Thread ist unverändert.
+- **Tests:** 126 Unit-Tests (neu: Resampler, Decoder, Fensterung, Tempo- und Kick-Regeln, Rückfall auf Classic, Editor-State v5) und ein Modelltest mit dem echten Modell (`tonetrace_mltest`: F1 gehalten plus F2 mit eigenen Anschlägen, Stille, Echtzeitfaktor 0,015).
 
 ### 4.4.1 – Oktavnoten mit eigenen Anschlägen
 
@@ -274,4 +285,5 @@ Map & Draw: Live-Spektrogramm, Noten zeichnen, MIDI-Export, Preview, Diagnose (s
 ## Lizenzhinweise
 
 Das VST3 SDK von Steinberg steht unter der MIT-Lizenz und wird beim Bauen aus `external/vst3sdk` eingebunden.
+Die Neural-Engine nutzt das Modell Basic Pitch von Spotify (Apache-2.0, `assets/ml/nmp.mlpackage`); Lizenztext und NOTICE stehen in `THIRD_PARTY_LICENSES.md`.
 VST is a registered trademark of Steinberg Media Technologies GmbH.

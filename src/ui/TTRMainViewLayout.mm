@@ -69,6 +69,8 @@ static const CGFloat kOptionsW = 288, kOptionsRowH = 28, kOptionsPad = 16;
     pair(_magnetButton, _grabOnClickButton);
     pair(_alignButton, _waveButton);
     pair(_syncButton, _samplerDragButton);
+    _engineButton.frame = NSMakeRect(kOptionsPad, y, w, kOptionsRowH);
+    y += kOptionsRowH + kGrid;
     _tuningMinus.frame = NSMakeRect(kOptionsPad, y, kOptionsRowH, kOptionsRowH);
     _tuningReadout.frame = NSMakeRect(kOptionsPad + kOptionsRowH + kGrid, y, w - 2 * (kOptionsRowH + kGrid), kOptionsRowH);
     _tuningPlus.frame = NSMakeRect(kOptionsPad + w - kOptionsRowH, y, kOptionsRowH, kOptionsRowH);

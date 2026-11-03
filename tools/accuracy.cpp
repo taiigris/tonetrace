@@ -6,6 +6,8 @@
 //   accuracy export <dir>                           writes every mix as <dir>/<set>-<name>.wav (float32 mono) plus .bpm
 //   accuracy score-mixes <dir>                      scores external notes <dir>/<set>-<name>.notes (pitch|start|end per line)
 //   accuracy score-track <notes> <windowSec>        reference-window rows for external notes
+//   accuracy noise                                  notes Quick Grab (100 %) finds in white noise of 0.3 / 1 / 2.5 s
+//   --engine neural|classic (first argument)        Quick Grab engine (neural: $TONETRACE_NEURAL_MODEL or build/ml/nmp.mlmodelc)
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -22,16 +24,25 @@
 #include "TestWav.h"
 #include "analysis/QuickGrab.h"
 #include "analysis/Spectrogram.h"
+#include "analysis/ml/NeuralEngine.h"
+#include "analysis/ml/NeuralTranscriber.h"
 
 using namespace ttr;
 
 namespace {
+
+bool useNeural = false;
 
 std::vector<NoteEvent> grab(const std::vector<float>& audio, double rate, double bpm, float amount) {
     const std::shared_ptr<Spectrogram> spec = computeSpectrogram(audio.data(), audio.size(), rate);
     if (!spec) return {};
     FilterSettings filter;
     filter.hideDrums = true;
+    if (useNeural) {
+        const NeuralGrab neural = neuralGrabAudio(audio, rate, spec.get(), bpm, 0.0, amount, filter, nullptr);
+        if (!neural.ok) { std::fprintf(stderr, "neural engine failed: %s\n", neural.reason.c_str()); std::exit(2); }
+        return neural.notes;
+    }
     Snapshot snap;
     snap.spectrogram = spec;
     snap.bpm = bpm;
@@ -311,13 +322,33 @@ int runScoreTrack(const char* path, double window) {
     return 0;
 }
 
+int runNoise() {
+    for (const double seconds : {0.3, 1.0, 2.5}) {
+        std::vector<float> noise(size_t(seconds * oldmix::kSampleRate));
+        uint32_t state = 2463534242u;  // fixed seed: the same noise for both engines
+        for (float& v : noise) { state = state * 1664525u + 1013904223u; v = 0.5f * (float(state >> 8) / float(1u << 24) * 2.0f - 1.0f); }
+        std::printf("noise|%.1f|%zu\n", seconds, grab(noise, oldmix::kSampleRate, ttr::kDefaultBpm, 1.0f).size());
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc >= 3 && std::strcmp(argv[1], "--engine") == 0) {
+        useNeural = std::strcmp(argv[2], "neural") == 0;
+        argv += 2;
+        argc -= 2;
+        if (useNeural) {
+            setenv(kNeuralModelEnv, "build/ml/nmp.mlmodelc", 0);
+            installCoreMLLoader();
+        }
+    }
     if (argc >= 5 && std::strcmp(argv[1], "track") == 0) return runTrack(argv[2], std::atof(argv[3]), std::atof(argv[4]), argc > 5 ? std::atof(argv[5]) : 0.0);
     if (argc >= 5 && std::strcmp(argv[1], "dump") == 0) return runDump(argv[2], std::atoi(argv[3]), float(std::atof(argv[4])));
     if (argc >= 7 && std::strcmp(argv[1], "matrix") == 0) return runMatrix(argv[2], std::atof(argv[3]), std::atof(argv[4]), std::atof(argv[5]), argv[6]);
     if (argc >= 3 && std::strcmp(argv[1], "scan") == 0) return runScan(argv[2], argc > 3 ? std::atof(argv[3]) : 0.0);
+    if (argc >= 2 && std::strcmp(argv[1], "noise") == 0) return runNoise();
     if (argc >= 3 && std::strcmp(argv[1], "export") == 0) return runExport(argv[2]);
     if (argc >= 3 && std::strcmp(argv[1], "score-mixes") == 0) return runScoreMixes(argv[2]);
     if (argc >= 4 && std::strcmp(argv[1], "score-track") == 0) return runScoreTrack(argv[2], std::atof(argv[3]));

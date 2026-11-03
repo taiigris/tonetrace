@@ -37,6 +37,7 @@ add_library(tonetrace_core STATIC
   src/analysis/LiveSpectrum.cpp src/analysis/LiveHarmonic.cpp src/analysis/WavePeaks.cpp
   src/analysis/PitchLines.cpp src/analysis/LineFrames.cpp src/analysis/LineTracker.cpp src/analysis/LineOnsets.cpp
   src/analysis/LineBuilder.cpp src/analysis/LiveLines.cpp
+  src/analysis/ml/NeuralModel.cpp src/analysis/ml/Resampler.cpp src/analysis/ml/NoteDecoder.cpp src/analysis/ml/NeuralEngine.cpp
   src/render/GlowProfile.cpp
   src/midi/MidiFileWriter.cpp src/midi/ExportPlanner.cpp
   src/preview/PreviewSynth.cpp src/bridge/BridgeClient.cpp
@@ -48,10 +49,30 @@ find_library(ACCELERATE Accelerate)
 target_link_libraries(tonetrace_core PUBLIC ${ACCELERATE})
 set_target_properties(tonetrace_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# ---- neural engine: CoreML implementation (Basic Pitch, Apache-2.0) and the compiled model ----
+find_library(COREML CoreML)
+add_library(tonetrace_ml STATIC src/analysis/ml/NeuralTranscriber.mm)
+target_link_libraries(tonetrace_ml PUBLIC tonetrace_core ${COREML} "-framework Foundation")
+set_target_properties(tonetrace_ml PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set(TONETRACE_MODEL_SRC "${CMAKE_SOURCE_DIR}/assets/ml/nmp.mlpackage")
+set(TONETRACE_MODEL_OUT "${CMAKE_BINARY_DIR}/ml/nmp.mlmodelc")
+file(GLOB_RECURSE TONETRACE_MODEL_FILES "${TONETRACE_MODEL_SRC}/*")
+add_custom_command(OUTPUT "${TONETRACE_MODEL_OUT}/coremldata.bin"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/ml"
+  COMMAND xcrun coremlc compile "${TONETRACE_MODEL_SRC}" "${CMAKE_BINARY_DIR}/ml" >/dev/null
+  DEPENDS ${TONETRACE_MODEL_FILES} COMMENT "Compiling the neural model (coremlc)")
+add_custom_target(tonetrace_model ALL DEPENDS "${TONETRACE_MODEL_OUT}/coremldata.bin")
+
 # ---- unit tests ----
 file(GLOB TEST_SOURCES tests/test_*.cpp)
 add_executable(tonetrace_tests ${TEST_SOURCES})
 target_link_libraries(tonetrace_tests PRIVATE tonetrace_core)
+
+# ---- neural engine test with the real model (sawtooth bass + octave note, fallback) ----
+add_executable(tonetrace_mltest tools/mltest.mm)
+target_include_directories(tonetrace_mltest PRIVATE tests)
+target_link_libraries(tonetrace_mltest PRIVATE tonetrace_ml)
+add_dependencies(tonetrace_mltest tonetrace_model)
 add_test(NAME tonetrace_tests COMMAND tonetrace_tests)
 
 # ---- Cocoa UI ----
