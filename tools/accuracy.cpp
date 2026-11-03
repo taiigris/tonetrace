@@ -3,11 +3,15 @@
 //   accuracy mixes                                  one line per mix and Quick Grab amount: set|name|amount|noteF1|durationF1|frag|short|pieces
 //   accuracy track <wav> <startSec> <beats> [bpm]   reference-window rows (read only); bpm 0 / missing = estimated
 //   accuracy scan <wav> [bpm]                       scans the track in 20-beat windows and prints the best ones
+//   accuracy export <dir>                           writes every mix as <dir>/<set>-<name>.wav (float32 mono) plus .bpm
+//   accuracy score-mixes <dir>                      scores external notes <dir>/<set>-<name>.notes (pitch|start|end per line)
+//   accuracy score-track <notes> <windowSec>        reference-window rows for external notes
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -171,6 +175,8 @@ void estimateTempo(const std::vector<float>& mono, double rate, double* bpm, dou
     }
 }
 
+void printRows(const std::vector<NoteEvent>& notes, double window);
+
 int runTrack(const char* path, double startSec, double beats, double bpm) {
     std::vector<float> audio;
     const double rate = twav::readWav(path, startSec, beats * 60.0 / (bpm > 0 ? bpm : 130.0), &audio);
@@ -178,6 +184,11 @@ int runTrack(const char* path, double startSec, double beats, double bpm) {
     const double window = double(audio.size()) / rate;
     const std::vector<NoteEvent> notes = grab(audio, rate, bpm > 0 ? bpm : 130.0, 1.0f);
     std::printf("window start %.2f s, %.0f beats at %.2f BPM (%.2f s), %zu pieces\n", startSec, beats, bpm, window, notes.size());
+    printRows(notes, window);
+    return 0;
+}
+
+void printRows(const std::vector<NoteEvent>& notes, double window) {
     int found = 0;
     for (const RefRow& row : refRows()) {
         const RowResult r = rowResult(row, notes, window);
@@ -186,7 +197,6 @@ int runTrack(const char* path, double startSec, double beats, double bpm) {
     }
     std::printf("found|%d|fp|%d\n", found, falsePositives(notes, window));
     for (const NoteEvent& n : notes) std::printf("note|%d|%.2f|%.2f\n", n.pitch, n.startSec, n.endSec);
-    return 0;
 }
 
 // accuracy matrix <wav> <startSec> <beats> <bpm> <out>: raw note energies in dB (rows = notes, high to low) and the notes, for a picture
@@ -230,6 +240,77 @@ int runScan(const char* path, double bpm) {
     return 0;
 }
 
+// ---- external engines (reference runs outside the plugin) ------------------------------------------------------
+struct NamedMix { std::string id; double bpm; std::vector<float> audio; std::vector<tmetric::Note> truth; };
+
+std::vector<NamedMix> allMixes() {
+    std::vector<NamedMix> out;
+    for (const oldmix::Mix& m : oldmix::buildMixes()) {
+        NamedMix n{"old-" + m.name, ttr::kDefaultBpm, m.audio, {}};
+        for (const oldmix::Truth& t : m.truth) n.truth.push_back({t.pitch, t.start, t.end});
+        out.push_back(std::move(n));
+    }
+    for (const ttech::Recipe& r : ttech::recipes()) {
+        const ttech::Mix m = ttech::build(r);
+        NamedMix n{m.name, m.bpm, m.audio, {}};
+        for (const ttech::Truth& t : m.truth) n.truth.push_back({t.pitch, t.start, t.end});
+        out.push_back(std::move(n));
+    }
+    return out;
+}
+
+bool writeWavFloat(const std::string& path, const std::vector<float>& audio, double rate) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) return false;
+    auto u32 = [&](uint32_t v) { out.write(reinterpret_cast<const char*>(&v), 4); };
+    auto u16 = [&](uint16_t v) { out.write(reinterpret_cast<const char*>(&v), 2); };
+    const uint32_t bytes = uint32_t(audio.size() * 4);
+    out.write("RIFF", 4); u32(36 + bytes); out.write("WAVEfmt ", 8); u32(16); u16(3); u16(1);
+    u32(uint32_t(rate)); u32(uint32_t(rate) * 4); u16(4); u16(32); out.write("data", 4); u32(bytes);
+    out.write(reinterpret_cast<const char*>(audio.data()), std::streamsize(bytes));
+    return bool(out);
+}
+
+std::vector<NoteEvent> readNotes(const std::string& path, bool* ok) {
+    std::vector<NoteEvent> notes;
+    std::ifstream in(path);
+    *ok = bool(in);
+    NoteEvent n;
+    char sep1 = 0, sep2 = 0;
+    while (in >> n.pitch >> sep1 >> n.startSec >> sep2 >> n.endSec)
+        if (sep1 == '|' && sep2 == '|' && n.endSec > n.startSec) notes.push_back(n);
+    return notes;
+}
+
+int runExport(const char* dir) {
+    for (const NamedMix& m : allMixes()) {
+        const std::string base = std::string(dir) + "/" + m.id;
+        if (!writeWavFloat(base + ".wav", m.audio, oldmix::kSampleRate)) { std::fprintf(stderr, "cannot write %s.wav\n", base.c_str()); return 1; }
+        std::ofstream(base + ".bpm") << m.bpm << "\n";
+    }
+    return 0;
+}
+
+int runScoreMixes(const char* dir) {
+    for (const NamedMix& m : allMixes()) {
+        bool ok = false;
+        const std::vector<NoteEvent> notes = readNotes(std::string(dir) + "/" + m.id + ".notes", &ok);
+        if (!ok) { std::fprintf(stderr, "missing notes for %s\n", m.id.c_str()); return 1; }
+        const tmetric::Score s = tmetric::score(m.truth, toNotes(notes));
+        std::printf("%s|%.4f|%.4f|%.3f|%.3f|%d\n", m.id.c_str(), s.noteF1, s.durationF1, s.frag, s.shortShare, s.pieces);
+    }
+    return 0;
+}
+
+int runScoreTrack(const char* path, double window) {
+    bool ok = false;
+    const std::vector<NoteEvent> notes = readNotes(path, &ok);
+    if (!ok) { std::fprintf(stderr, "cannot read %s\n", path); return 1; }
+    std::printf("external notes %s, window %.2f s, %zu pieces\n", path, window, notes.size());
+    printRows(notes, window);
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -237,5 +318,8 @@ int main(int argc, char** argv) {
     if (argc >= 5 && std::strcmp(argv[1], "dump") == 0) return runDump(argv[2], std::atoi(argv[3]), float(std::atof(argv[4])));
     if (argc >= 7 && std::strcmp(argv[1], "matrix") == 0) return runMatrix(argv[2], std::atof(argv[3]), std::atof(argv[4]), std::atof(argv[5]), argv[6]);
     if (argc >= 3 && std::strcmp(argv[1], "scan") == 0) return runScan(argv[2], argc > 3 ? std::atof(argv[3]) : 0.0);
+    if (argc >= 3 && std::strcmp(argv[1], "export") == 0) return runExport(argv[2]);
+    if (argc >= 3 && std::strcmp(argv[1], "score-mixes") == 0) return runScoreMixes(argv[2]);
+    if (argc >= 4 && std::strcmp(argv[1], "score-track") == 0) return runScoreTrack(argv[2], std::atof(argv[3]));
     return runMixes();
 }
