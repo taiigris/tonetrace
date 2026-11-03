@@ -45,6 +45,10 @@ step "Neural engine test (CoreML model: octave over a held bass, silence, speed)
 build/tonetrace_mltest 2>&1 | grep -v "^     note" | tee build/mltest.log | tail -3
 grep -q "MLTEST PASSED" build/mltest.log
 
+step "MuScriptor engine test (real model on real music; skipped until the plug-in has downloaded the model)"
+build/tonetrace_mstest 2>&1 | tee build/mstest.log | tail -3
+grep -qE "MSTEST (PASSED|SKIPPED)" build/mstest.log
+
 step "Live bridge test (Python, mock of the Live API)"
 python3 -I -B -m unittest discover -s tests/bridge 2>&1 | tee build/bridgetest.log | tail -4
 grep -q "^OK" build/bridgetest.log

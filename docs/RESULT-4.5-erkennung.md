@@ -77,6 +77,30 @@ F2 ≥ 70 % bei FP ≤ 25 liefert, wurde nicht gefunden. Der Aufwand für eine b
 Classic misst im Fenster 156,83 s heute F2 24 % / 4 Stücke und F3 56 % / 4 Stücke; `docs/ACCURACY.md` nennt für 4.4.1 36 % / 5 und 66 % / 3.
 Der Quellstand `src/` ist unverändert gegenüber 3c0d047; die Abweichung ist ungeklärt (vermutlich anderer Messlauf oder anderer Stand von `build/generated`).
 
+## Nachtrag – MuScriptor (NeuralNote v2) geprüft
+
+NeuralNote v1 nutzt dasselbe Basic-Pitch-Modell wie die Neural-Engine. v2 nutzt MuScriptor (Transformer, Code `muscriptor.cpp` MIT,
+**Gewichte CC BY-NC 4.0, nur nicht-kommerziell**). Lokal gemessen (Scratchpad, nichts im Repo) mit `small` (209 MB) und `medium` (620 MB),
+Metal, je ohne Vorgabe ("alle") und mit Vorgabe Bass + Synth Lead. Fensterlänge 20 Beats bei 134 BPM = 8,955 s
+(ein erster Lauf hatte versehentlich die Startzeit als Länge übergeben; Kontrolle: Basic Pitch roh ergibt wieder F1 50/17, F2 11/5).
+
+Referenzfenster, Überdeckung in % je Zeile, gefundene Zeilen / False Positives:
+
+| Fenster | Classic | Neural | MuScriptor medium, alle | medium, Bass + Lead | small, Bass + Lead |
+|---|---|---|---|---|---|
+| 156,83 s | 2/8, FP 11 (F2 24) | 3/8, FP 5 (F2 72) | 4/8, FP 77 (F2 99, C3 100, F3 100, G3 100, F1 0) | 1/8, FP 12 (F2 67) | 3/8, FP 16 (F1 91, F2 54) |
+| 160,41 s | 2/8, FP 11 | – | 3/8, FP 161 | 2/8, FP 14 | 3/8, FP 20 |
+| 38,62 s | 2/8, FP 25 | – | 1/8, FP 101 | 1/8, FP 23 | 2/8, FP 21 |
+
+Die vielen False Positives bei "alle" sind überwiegend Akkordtöne (Fis-Moll-Pad: 49, 57, 61, 66), die die Referenzzeilen (Bass-Grab) nicht enthalten.
+Die kurzen Basszeilen C2 und B1 findet kein Modell.
+
+Synthetische Mixes (medium): Techno Note-F1 0,46–0,67 (alle) bzw. Dauer-F1 bis 0,91 (Bass + Lead); auf reinem Sägezahn (Melodie, Akkorde,
+Vibrato) Note-F1 nahe 0, oft eine Oktave zu hoch. Laufzeit `medium` auf Metal 0,1 bis 1,6 × Echtzeit.
+
+**Einschätzung:** Am Referenz-Track gleichwertig bis besser als Neural bei den Tonhöhen, aber mit Akkord-/Pad-Noten. Ein Praxistest des Nutzers
+mit NeuralNote (medium) auf eigenen Tracks war sehr gut. Offen für einen Einbau: Lizenz (nur nicht-kommerziell), 620 MB Download, C++23/ggml.
+
 ## Mögliche nächste Schritte
 
 - Basic Pitch nur als zweite Meinung für F2 über F1: Classic bleibt maßgeblich, ein Modell-Treffer eine Oktave über einem gehaltenen Bass hebt dort nur

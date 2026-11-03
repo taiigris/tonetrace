@@ -4,6 +4,7 @@
 
 #include "analysis/PitchLines.h"
 #include "analysis/QuickGrab.h"
+#include "analysis/ml/MuScriptorEngine.h"
 #include "core/Logger.h"
 #include "core/TonetraceKernel.h"
 #include "state/StateCodec.h"
@@ -173,17 +174,18 @@ int TonetraceKernel::quickGrab() {
     if (status() != KernelStatus::Idle) return 0;
     const SnapshotPtr base = snapshot();
     if (!base || !base->spectrogram) return 0;
-    const GrabEngine engine = lineView().isNeural ? GrabEngine::Neural : GrabEngine::Classic;
+    const GrabEngine engine = lineView().engine;
     GrabOutcome outcome = quickGrabWithEngine(*base, param(kParamQuickGrab), filterSettings(), tuningOffsetCents(), engine);
-    reportFallback(outcome);
+    reportFallback(outcome, engine);
     return mergeGrabbed(base, std::move(outcome.notes));
 }
 
-// Neural was chosen but Classic ran: log it and tell the user once per grab (never an error, the notes are still there).
-void TonetraceKernel::reportFallback(const GrabOutcome& outcome) {
+// Neural or MuScriptor was chosen but Classic ran: log it and tell the user once per grab (never an error, the notes are still there).
+void TonetraceKernel::reportFallback(const GrabOutcome& outcome, GrabEngine requested) {
     if (outcome.fallbackReason.empty()) return;
-    logWarn(instanceId_, "neural engine unavailable (%s), Quick Grab used Classic", outcome.fallbackReason.c_str());
-    notice("Neural engine unavailable (" + outcome.fallbackReason + ") - Quick Grab used Classic", NoticeLevel::Warning);
+    const std::string name = grabEngineName(requested);
+    logWarn(instanceId_, "%s engine unavailable (%s), Quick Grab used Classic", name.c_str(), outcome.fallbackReason.c_str());
+    notice(name + " engine unavailable (" + outcome.fallbackReason + ") - Quick Grab used Classic", NoticeLevel::Warning);
 }
 
 // Adds Quick Grab notes as one undo step; the document may have changed while the grab was computed.
@@ -202,7 +204,7 @@ int TonetraceKernel::mergeGrabbed(const SnapshotPtr& base, std::vector<NoteEvent
 }
 
 LineView TonetraceKernel::lineView() const {
-    return {lineFundamentals_.load(), lineAlign_.load(), lineTrim_.load(), lineSpectrum_.load(), lineGrabOnClick_.load(), lineSamplerOnDrag_.load(), lineNeural_.load()};
+    return {lineFundamentals_.load(), lineAlign_.load(), lineTrim_.load(), lineSpectrum_.load(), lineGrabOnClick_.load(), lineSamplerOnDrag_.load(), grabEngineFromIndex(lineEngine_.load())};
 }
 
 void TonetraceKernel::setLineView(const LineView& view) {
@@ -211,7 +213,11 @@ void TonetraceKernel::setLineView(const LineView& view) {
     lineSpectrum_.store(view.isSpectrum);
     lineGrabOnClick_.store(view.grabOnClick);
     lineSamplerOnDrag_.store(view.samplerOnDrag);
-    lineNeural_.store(view.isNeural);
+    const int previousEngine = lineEngine_.exchange(static_cast<int>(view.engine));
+    if (view.engine == GrabEngine::MuScriptor && previousEngine != static_cast<int>(GrabEngine::MuScriptor)) {
+        const std::string hint = prefetchTranscriber();  // starts the model download early
+        if (!hint.empty()) notice(hint, NoticeLevel::Info);
+    }
     lineTrim_.store(std::isfinite(view.trimCents) ? std::clamp(view.trimCents, -kMaxTrimCents, kMaxTrimCents) : 0.0f);
 }
 

@@ -26,17 +26,18 @@ struct UiSettings {
     bool showWave = true;
     // 4.3: the full spectrogram view (false = thin lines), click-to-grab on strong lines, sampler track after Drag MIDI
     bool isSpectrum = true, grabOnClick = false, samplerOnDrag = false;
-    // 4.5: Quick Grab engine (false = Classic)
-    bool isNeural = false;
+    // 4.5: Quick Grab engine, 0 = Classic, 1 = Neural, 2 = MuScriptor (same values as GrabEngine)
+    int grabEngine = 0;
+    static constexpr int kMaxGrabEngine = 2;
     // window / viewport
     double scrollSec = 0.0;
     double scrollY = -1.0;  // < 0: default (around the middle of the keyboard)
     int width = kDefaultWindowWidth, height = kDefaultWindowHeight;
 
     bool operator==(const UiSettings& o) const {
-        return std::tie(gain, range, speed, quickGrab, snap, hideDrums, magnet, syncToHost, fundamentals, alignToSample, tuningTrim, showWave, isSpectrum, grabOnClick, samplerOnDrag, isNeural, scrollSec, scrollY, width, height) ==
+        return std::tie(gain, range, speed, quickGrab, snap, hideDrums, magnet, syncToHost, fundamentals, alignToSample, tuningTrim, showWave, isSpectrum, grabOnClick, samplerOnDrag, grabEngine, scrollSec, scrollY, width, height) ==
                std::tie(o.gain, o.range, o.speed, o.quickGrab, o.snap, o.hideDrums, o.magnet, o.syncToHost, o.fundamentals, o.alignToSample, o.tuningTrim, o.showWave,
-                        o.isSpectrum, o.grabOnClick, o.samplerOnDrag, o.isNeural, o.scrollSec, o.scrollY, o.width, o.height);
+                        o.isSpectrum, o.grabOnClick, o.samplerOnDrag, o.grabEngine, o.scrollSec, o.scrollY, o.width, o.height);
     }
 };
 

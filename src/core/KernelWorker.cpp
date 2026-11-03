@@ -133,15 +133,15 @@ bool TonetraceKernel::startQuickGrab() {
     const float amount = param(kParamQuickGrab);
     const FilterSettings filter = filterSettings();
     const double tuning = tuningOffsetCents();
-    const GrabEngine engine = lineView().isNeural ? GrabEngine::Neural : GrabEngine::Classic;
+    const GrabEngine engine = lineView().engine;
     grabThread_ = std::thread([this, base, amount, filter, tuning, engine] {
         const auto started = std::chrono::steady_clock::now();
         GrabOutcome outcome = quickGrabWithEngine(*base, amount, filter, tuning, engine, &grabControl_);
-        reportFallback(outcome);
+        reportFallback(outcome, engine);
         const bool cancelled = grabControl_.cancelled();
         const int added = cancelled ? 0 : mergeGrabbed(base, std::move(outcome.notes));
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-        logInfo(instanceId_, "quick grab (%s) %s: %d notes in %.0f ms", outcome.used == GrabEngine::Neural ? "neural" : "classic", cancelled ? "cancelled" : "done",
+        logInfo(instanceId_, "quick grab (%s) %s: %d notes in %.0f ms", grabEngineName(outcome.used), cancelled ? "cancelled" : "done",
                 added, ms);
         if (!cancelled) notice(added > 0 ? "Quick Grab added " + std::to_string(added) + " notes - edit them like any other (Undo reverts it)"
                                          : "Quick Grab found nothing new - raise the slider or draw the notes yourself",

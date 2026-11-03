@@ -207,8 +207,8 @@ static NSString* formatSpeed(double speed) {
     _viewButton.isOn = !lineView.isSpectrum;  // the icon shows the view a click would NOT leave: lines when on
     _grabOnClickButton.isOn = lineView.grabOnClick;
     _samplerDragButton.isOn = lineView.samplerOnDrag;
-    _engineButton.isOn = lineView.isNeural;
-    NSString* engineTitle = lineView.isNeural ? @"Engine: Neural" : @"Engine: Classic";
+    _engineButton.isOn = lineView.engine != ttr::GrabEngine::Classic;
+    NSString* engineTitle = [NSString stringWithFormat:@"Engine: %s", ttr::grabEngineName(lineView.engine)];
     if (![_engineButton.title isEqualToString:engineTitle]) _engineButton.title = engineTitle;
     _samplerButton.isEnabled = !busy && noteCount > 0 && !_samplerPending;
     [self updateBridgeStatus];

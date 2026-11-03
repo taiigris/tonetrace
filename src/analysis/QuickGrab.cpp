@@ -7,6 +7,7 @@
 #include "analysis/LowBand.h"
 #include "analysis/SpectralFrames.h"
 #include "analysis/SustainGrab.h"
+#include "analysis/ml/MuScriptorEngine.h"
 #include "analysis/ml/NeuralEngine.h"
 
 namespace ttr {
@@ -55,9 +56,32 @@ std::vector<NoteEvent> quickGrabSnapshot(const Snapshot& snapshot, float amount,
     return notes;
 }
 
+const char* grabEngineName(GrabEngine engine) {
+    switch (engine) {
+        case GrabEngine::Neural: return "Neural";
+        case GrabEngine::MuScriptor: return "MuScriptor";
+        case GrabEngine::Classic: break;
+    }
+    return "Classic";
+}
+
+GrabEngine grabEngineFromIndex(int index) {
+    return index > 0 && index < kGrabEngineCount ? static_cast<GrabEngine>(index) : GrabEngine::Classic;
+}
+
 GrabOutcome quickGrabWithEngine(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, GrabEngine engine,
                                 TaskControl* control) {
     GrabOutcome outcome;
+    if (engine == GrabEngine::MuScriptor) {
+        MuScriptorGrab grab = muscriptorGrabSnapshot(snapshot, control);
+        if (grab.ok) {
+            outcome.notes = std::move(grab.notes);
+            outcome.used = GrabEngine::MuScriptor;
+            return outcome;
+        }
+        if (control && control->cancelled()) return outcome;
+        outcome.fallbackReason = grab.reason;
+    }
     if (engine == GrabEngine::Neural) {
         NeuralGrab neural = neuralGrabSnapshot(snapshot, amount, filter, control);
         if (neural.ok) {

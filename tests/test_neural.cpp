@@ -201,9 +201,9 @@ TEST(neural_quick_grab_falls_back_to_classic_without_a_model) {
 
 TEST(editor_state_keeps_the_engine_and_older_states_load_classic) {
     UiSettings s;
-    s.isNeural = true;
+    s.grabEngine = int(GrabEngine::Neural);
     const std::vector<uint8_t> bytes = encodeUiSettings(s);
     UiSettings back;
-    CHECK(decodeUiSettings(bytes.data(), bytes.size(), &back) && back.isNeural && back == s);
-    CHECK(!UiSettings{}.isNeural);
+    CHECK(decodeUiSettings(bytes.data(), bytes.size(), &back) && back.grabEngine == int(GrabEngine::Neural) && back == s);
+    CHECK(UiSettings{}.grabEngine == int(GrabEngine::Classic));
 }

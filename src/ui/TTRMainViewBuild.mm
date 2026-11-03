@@ -177,8 +177,12 @@
     _syncButton = [self addButton:@"Sync" kind:TTRButtonKindNormal tip:@"Sync to host: while the host transport runs, the preview follows the song position (relative to where you recorded)" action:^{ [weak syncClicked]; }];
     _samplerDragButton = [self addButton:@"Sampler on Drag" kind:TTRButtonKindNormal tip:@"After a Drag MIDI also create the sampler track in Live (needs the Tonetrace Bridge)"
                                   action:^{ ttr::LineView v = kernel->lineView(); v.samplerOnDrag = !v.samplerOnDrag; [weak lineViewChanged:v]; }];
-    _engineButton = [self addButton:@"Engine: Classic" kind:TTRButtonKindNormal tip:@"Quick Grab engine. Classic: the spectral analysis (default). Neural: a trained transcription model (Basic Pitch) on the stored recording (up to 60 s); without the model it falls back to Classic"
-                                action:^{ ttr::LineView v = kernel->lineView(); v.isNeural = !v.isNeural; [weak lineViewChanged:v]; }];
+    _engineButton = [self addButton:@"Engine: Classic" kind:TTRButtonKindNormal tip:@"Quick Grab engine, click to switch. Classic: the spectral analysis (default). Neural: Basic Pitch on the stored recording (up to 60 s). MuScriptor: a large multi-instrument model incl. drums (Apple Silicon, downloads 620 MB on first use, non-commercial license). Without a model it falls back to Classic"
+                                action:^{
+                                    ttr::LineView v = kernel->lineView();
+                                    v.engine = ttr::grabEngineFromIndex((static_cast<int>(v.engine) + 1) % ttr::kGrabEngineCount);
+                                    [weak lineViewChanged:v];
+                                }];
     _tuningMinus = [self addButton:@"−" kind:TTRButtonKindNormal tip:@"Tuning trim -5 cent (move the rows down)" action:^{ [weak nudgeTuning:-1]; }];
     _tuningPlus = [self addButton:@"+" kind:TTRButtonKindNormal tip:@"Tuning trim +5 cent (move the rows up), at most 50 cent" action:^{ [weak nudgeTuning:1]; }];
     _tuningReadout = [self makeReadout:@"Tuning" tip:@"Detected deviation of the sample from A = 440 Hz (plus your trim). The rows follow it while Align is on" stacked:NO];

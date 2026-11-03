@@ -38,6 +38,7 @@ add_library(tonetrace_core STATIC
   src/analysis/PitchLines.cpp src/analysis/LineFrames.cpp src/analysis/LineTracker.cpp src/analysis/LineOnsets.cpp
   src/analysis/LineBuilder.cpp src/analysis/LiveLines.cpp
   src/analysis/ml/NeuralModel.cpp src/analysis/ml/Resampler.cpp src/analysis/ml/NoteDecoder.cpp src/analysis/ml/NeuralEngine.cpp
+  src/analysis/ml/MuScriptorEngine.cpp
   src/render/GlowProfile.cpp
   src/midi/MidiFileWriter.cpp src/midi/ExportPlanner.cpp
   src/preview/PreviewSynth.cpp src/bridge/BridgeClient.cpp
@@ -51,8 +52,33 @@ set_target_properties(tonetrace_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ---- neural engine: CoreML implementation (Basic Pitch, Apache-2.0) and the compiled model ----
 find_library(COREML CoreML)
-add_library(tonetrace_ml STATIC src/analysis/ml/NeuralTranscriber.mm)
-target_link_libraries(tonetrace_ml PUBLIC tonetrace_core ${COREML} "-framework Foundation")
+# ---- MuScriptor engine (muscriptor.cpp MIT + ggml; weights CC BY-NC, downloaded at run time, never bundled) ----
+# muscriptor.cpp builds one architecture per tree: an arm64 sub-build (cmake/muscriptor, fetches the pinned sources) is
+# lipo'd with an x86_64 stub that reports "needs Apple Silicon".
+include(ExternalProject)
+set(TONETRACE_MS_BUILD "${CMAKE_BINARY_DIR}/muscriptor-arm64")
+set(TONETRACE_MS_ARM64 "${TONETRACE_MS_BUILD}/libtonetrace_muscriptor_arm64.a")
+ExternalProject_Add(muscriptor_arm64
+  SOURCE_DIR "${CMAKE_SOURCE_DIR}/cmake/muscriptor"
+  BINARY_DIR "${TONETRACE_MS_BUILD}"
+  CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
+             -DTT_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target merged --parallel
+  INSTALL_COMMAND ""
+  BUILD_ALWAYS ON
+  BUILD_BYPRODUCTS "${TONETRACE_MS_ARM64}")
+add_library(tonetrace_msstub STATIC src/analysis/ml/muscriptor/MuScriptorStub.cpp)
+target_include_directories(tonetrace_msstub PRIVATE src)
+set_target_properties(tonetrace_msstub PROPERTIES OSX_ARCHITECTURES x86_64)
+set(TONETRACE_MS_FAT "${CMAKE_BINARY_DIR}/libtonetrace_muscriptor.a")
+add_custom_command(OUTPUT "${TONETRACE_MS_FAT}"
+  COMMAND lipo -create "${TONETRACE_MS_ARM64}" "$<TARGET_FILE:tonetrace_msstub>" -output "${TONETRACE_MS_FAT}"
+  DEPENDS muscriptor_arm64 tonetrace_msstub "${TONETRACE_MS_ARM64}" COMMENT "Joining the MuScriptor slices (arm64 engine, x86_64 stub)")
+add_custom_target(tonetrace_muscriptor_fat DEPENDS "${TONETRACE_MS_FAT}")
+
+add_library(tonetrace_ml STATIC src/analysis/ml/NeuralTranscriber.mm src/analysis/ml/MuScriptorTranscriber.mm)
+add_dependencies(tonetrace_ml tonetrace_muscriptor_fat)
+target_link_libraries(tonetrace_ml PUBLIC tonetrace_core ${COREML} "${TONETRACE_MS_FAT}" "-framework Foundation" "-framework Metal" "-framework MetalKit")
 set_target_properties(tonetrace_ml PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set(TONETRACE_MODEL_SRC "${CMAKE_SOURCE_DIR}/assets/ml/nmp.mlpackage")
 set(TONETRACE_MODEL_OUT "${CMAKE_BINARY_DIR}/ml/nmp.mlmodelc")
@@ -73,6 +99,11 @@ add_executable(tonetrace_mltest tools/mltest.mm)
 target_include_directories(tonetrace_mltest PRIVATE tests)
 target_link_libraries(tonetrace_mltest PRIVATE tonetrace_ml)
 add_dependencies(tonetrace_mltest tonetrace_model)
+
+# ---- MuScriptor engine test with the real model (skips when the model is not downloaded) ----
+add_executable(tonetrace_mstest tools/mstest.mm)
+target_link_libraries(tonetrace_mstest PRIVATE tonetrace_ml)
+target_compile_definitions(tonetrace_mstest PRIVATE TONETRACE_MS_FIXTURE="${TONETRACE_MS_BUILD}/_deps/muscriptor-src/testdata/audio/fixture_3chunks_16k.wav")
 add_test(NAME tonetrace_tests COMMAND tonetrace_tests)
 
 # ---- Cocoa UI ----

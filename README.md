@@ -12,6 +12,7 @@ Tonetrace 4.4.1: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale
 - **Freie Noten (4.3)**: Klick oder Ziehen zeichnet immer eine neue Note, standardmäßig auf das Raster 1/16 gerastet, Magnet aus. Verschieben und Längenänderung sind nie an Linien oder Onsets gebunden. Noten sind dünne türkis-grüne Balken (5 bis 6 px).
 - **Breitformat-Oberfläche (4.4)**: 1280 × 720 (Minimum 1024 × 600), Kopfzeile mit Status, links Klaviatur und große Map, schmale rechte Leiste mit Drag MIDI unten; alles ohne Scrollen, die Zeitachse füllt standardmäßig die Breite (**Fit**). Sekundäre Schalter liegen im Optionen-Popover.
 - **Halte-Erkennung (4.4)**: Quick Grab liefert wenige, lange Noten statt Fragmenten: gehaltene Töne laufen durch Drum-Schläge und Sidechain-Pumpen, der Bass-Grundton wird aus langen Fenstern bestimmt, Kick-Streifen werden nicht zu Noten. Messung in [`docs/ACCURACY.md`](docs/ACCURACY.md).
+- **Engine MuScriptor (4.6, optional, Apple Silicon)**: **Engine: Classic / Neural / MuScriptor** im Optionen-Popover. MuScriptor ist ein großes Transkriptionsmodell (Transformer von Kyutai/Mirelo, über muscriptor.cpp lokal auf der GPU) und erkennt ganze Mixe mit allen Instrumenten **inklusive Drums** (GM-Drum-Noten, auf 1/16 verlängert). Das Modell (620 MB) lädt das Plugin beim ersten Auswählen einmalig von Hugging Face nach `~/Library/Tonetrace/models/` (SHA256-geprüft); bis dahin läuft Classic mit Hinweis. **Die Modellgewichte sind CC BY-NC 4.0 – nur nicht-kommerzielle Nutzung.**
 - **Engine Neural (4.5, optional)**: im Optionen-Popover schaltet **Engine: Classic / Neural** Quick Grab auf ein trainiertes Transkriptionsmodell (Basic Pitch von Spotify, CoreML, läuft lokal auf der CPU). Es trennt eine Oktave über einem gehaltenen Bass deutlich besser als Classic und fragmentiert weniger, verliert aber auf dichten Mixes mit Drums. Standard bleibt **Classic**; ohne Modell oder ohne gespeichertes Audio (über 60 s) fällt Neural automatisch auf Classic zurück. Messung in [`docs/ACCURACY.md`](docs/ACCURACY.md).
 - **New Sampler Track (4.3)**: in Ableton Live legt die **Tonetrace Bridge** (ein MIDI Remote Script) per Knopfdruck eine MIDI-Spur mit Simpler und einem Clip mit den Noten an.
 - **Glühende Note-Map (4.2, jetzt Ansicht Lines)**: jeder Ton ist ein Heat-Streifen mit weiß-gelbem Kern und violettem bis rotem Schein auf fast schwarzem Grund, schmale Klaviatur, flache grüne Notenbalken, kompakte Waveform-Spur (abschaltbar mit **Wave**).
@@ -27,7 +28,7 @@ Tonetrace 4.4.1: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale
 - Sichtbare Knöpfe und Kontextmenü für Undo, Redo, Delete, Duplicate (Hosts fangen manche Tasten ab).
 - **About-Overlay** (Klick auf das Logo) und **Diagnosepanel** mit Version, Host, DSP-Last, Log-Ordner und Berichtsfunktion.
 - State speichert Spektrogramm, Audio, Noten und Parameter, Projekte aus Version 3 und 4.0 laden weiter (die Linien werden dabei im Hintergrund neu berechnet).
-- Kein JUCE; Fremdcode nur das VST3 SDK (VST3-Hülle) und das Basic-Pitch-Modell (Engine Neural, Apache-2.0).
+- Kein JUCE; Fremdcode nur das VST3 SDK (VST3-Hülle), das Basic-Pitch-Modell (Engine Neural, Apache-2.0) und muscriptor.cpp + ggml (Engine MuScriptor, MIT; beim Build geladen, Commit fest).
 
 ## Systemanforderungen
 
@@ -180,7 +181,8 @@ Die Version steht nur in `VERSION`, der Build-Hash (git) im About-Overlay und im
 ```
 src/vst3/      VST3: Processor, Controller (Parameter, State), Entry/Factory, NSView-Editor
 src/core/      Kernel (plattformneutral): Capture, Preview, Analyse-Thread, Notenmodell, Snapshot, Diagnose, Log
-src/analysis/ml/  Engine Neural: Modell-Schnittstelle und Fensterung, Resampler, NoteDecoder, NeuralEngine, CoreML-Anbindung (NeuralTranscriber.mm)
+src/analysis/ml/  Engine MuScriptor: MuScriptorEngine (Registry, Notenumwandlung), MuScriptorTranscriber.mm (Download, Laden), muscriptor/ (C++23-Brücke arm64, Stub x86_64)
+                  Engine Neural: Modell-Schnittstelle und Fensterung, Resampler, NoteDecoder, NeuralEngine, CoreML-Anbindung (NeuralTranscriber.mm)
 src/analysis/  Live-Spektrum, Pitch-Lines (Mehrfachauflösung, Tracking, Onsets, Tuning), Waveform-Peaks, HPSS/Drum-Filter, Noten-Analyse, Quick Grab (Halte-Erkennung: SustainGrab, SustainRuns, LowBand, BeatHits), Tonart, FFT
 src/capture/   vorab allokierter Aufnahmepuffer (120 s)
 src/midi/      MIDI-Writer (SMF Typ 1) und Export-Planer
@@ -212,6 +214,7 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Die Live-Trennung bei Hide drums kennt nur die Vergangenheit und weicht leicht vom Ergebnis nach dem Stoppen ab.
 - Quick Grab trennt Halbtöne im Bass (C1 bis B2) mit langen Fenstern (bis 0,74 s); die Kanten tiefer Töne sind deshalb bis ca. 100 ms unschärfer. Bei Aufnahmen aus einem geladenen State ohne Audio (über 60 s) fehlt die lange Analyse, Quick Grab fällt im Bass auf die Auflösung von 4.3 zurück.
 - Die Halte-Erkennung erreicht auf dichten echten Tracks nicht das Niveau des synthetischen Tests (Dauer-F1 der Techno-Mixes 0,74 bis 0,86, Ziel 0,85 in zwei von vier Mixes erreicht; Referenz-Track: F1-Bass in einem Stück, F2 und kurze Bassnoten fehlen): Pad-Töne unter Bass-Obertönen gehen verloren, Bass-Onsets kommen durch die langen Fenster bis ca. 100 ms zu spät. Reines weißes Rauschen erzeugt weiterhin einzelne Kurznoten (weniger als in 4.3). Details und Zahlen in `docs/ACCURACY.md`.
+- Engine MuScriptor: nur Apple Silicon, nur gespeichertes Audio (bis 60 s) nach dem Stopp, braucht einmalig Internet für den Modell-Download (620 MB) und Speicher für das Modell (GPU). Die Modellgewichte sind CC BY-NC 4.0, also nur für nicht-kommerzielle Nutzung. Auf rein synthetischen Klängen (nackter Sägezahn, Sinus) ist das Modell unzuverlässig (Oktavfehler, Zerstückelung); auf echten Tracks liefert es auch Pad-Akkorde und Drums, die man ggf. löschen muss. Die kurzen Bassnoten des Referenz-Tracks (C2, B1) findet es nicht. Der erste Grab nach dem Start des Hosts dauert länger (Laden, Metal-Shader).
 - Engine Neural: findet auf dem Referenz-Track 3 von 8 Zeilen (Abnahme 6), kurze Bassnoten (C2, A#1, B1) gar nicht; auf Mixes mit Drums (drums+melody, full mix) und bei Quick Grab 100 % liegt das F1 unter Classic. Sie analysiert nur das gespeicherte Audio (bis 60 s) und erst nach dem Stopp, nicht live. CoreML läuft bewusst nur auf der CPU (auf GPU / Neural Engine rechnet das Modell in float16 und meldet bei digitaler Stille alle Tasten).
 - Die Linien werden nicht im State gespeichert: bei Aufnahmen über 60 s, deren Audio nicht im State liegt, zeigt die Map nach dem Laden die alte Halbton-Heatmap.
 - Ein Oberton, der genau auf der Tonhöhe einer anderen Note liegt (z. B. eine Melodienote zwei Oktaven über dem Bass), wird mit Fundamentals abgedunkelt: dann Fundamentals ausschalten.
@@ -221,6 +224,14 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Im Spectrum sind Töne unter ca. 125 Hz durch das lange Fenster zeitlich verschmiert (wie ein Bassanschlag in jedem Spektrogramm).
 
 ## Changelog
+
+### 4.6.0 – Engine MuScriptor (optional)
+
+- **Erkennung:** dritte Quick-Grab-Engine **MuScriptor** (muscriptor.cpp, Modell `medium`): alle Instrumente eines Mixes inklusive Drums, Drum-Treffer als 1/16-Noten (nie in den nächsten Treffer derselben Trommel). Der Quick-Grab-Regler wirkt bei MuScriptor nicht (das Modell hat keine Schwelle). Am Referenzfenster 156,83 s: 4 von 8 Zeilen, F2 99 % (Classic 2/8, Neural 3/8); Messung in `docs/RESULT-4.5-erkennung.md`.
+- **Modell:** Download (620 MB) beim ersten Auswählen der Engine im Hintergrund, SHA256-geprüft, nach `~/Library/Tonetrace/models/`; Fortschritt im Hinweis-Banner und im Diagnosepanel („MuScriptor engine“). Gewichte CC BY-NC 4.0 (nur nicht-kommerziell), nicht im Plugin enthalten.
+- **Build:** muscriptor.cpp + ggml als arm64-Unterbuild (festes Commit), per `lipo` mit einem x86_64-Stub vereint; auf Intel-Macs meldet die Engine „needs Apple Silicon“ und Classic läuft. Neuer Test `tonetrace_mstest` (echtes Modell auf dem Testausschnitt von muscriptor.cpp: Plugin-Weg = direkter Aufruf, schneller als Echtzeit, Stille), übersprungen solange das Modell fehlt.
+- **Robustheit:** Die Modellgewichte werden vor dem Abbau der Metal-Geräte von ggml freigegeben (sonst Absturz beim Beenden des Hosts). Editor-State bleibt v5, das Engine-Byte nimmt jetzt 0/1/2 auf.
+
 
 ### 4.5.0 – Engine Neural (optional)
 
@@ -286,4 +297,5 @@ Map & Draw: Live-Spektrogramm, Noten zeichnen, MIDI-Export, Preview, Diagnose (s
 
 Das VST3 SDK von Steinberg steht unter der MIT-Lizenz und wird beim Bauen aus `external/vst3sdk` eingebunden.
 Die Neural-Engine nutzt das Modell Basic Pitch von Spotify (Apache-2.0, `assets/ml/nmp.mlpackage`); Lizenztext und NOTICE stehen in `THIRD_PARTY_LICENSES.md`.
+Die MuScriptor-Engine linkt muscriptor.cpp und ggml (MIT) sowie pffft (FFTPACK-Lizenz); die Modellgewichte (Kyutai/Mirelo) stehen unter CC BY-NC 4.0, werden nicht mitgeliefert, sondern beim ersten Gebrauch geladen und dürfen nur nicht-kommerziell genutzt werden. Details in `THIRD_PARTY_LICENSES.md`.
 VST is a registered trademark of Steinberg Media Technologies GmbH.

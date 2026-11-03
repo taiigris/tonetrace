@@ -77,6 +77,7 @@ UiSettings sanitized(UiSettings s) {
     s.scrollY = std::isfinite(s.scrollY) ? std::clamp(s.scrollY, -1.0, kMaxScrollY) : -1.0;
     s.width = std::clamp(s.width, kMinWindowWidth, kMaxWindowSize);
     s.height = std::clamp(s.height, kMinWindowHeight, kMaxWindowSize);
+    if (s.grabEngine < 0 || s.grabEngine > UiSettings::kMaxGrabEngine) s.grabEngine = 0;  // unknown engine -> Classic
     return s;
 }
 
@@ -101,7 +102,7 @@ std::vector<uint8_t> encodeUiSettings(const UiSettings& s) {
     put<uint8_t>(body, s.isSpectrum ? 1 : 0);
     put<uint8_t>(body, s.grabOnClick ? 1 : 0);
     put<uint8_t>(body, s.samplerOnDrag ? 1 : 0);
-    put<uint8_t>(body, s.isNeural ? 1 : 0);
+    put<uint8_t>(body, uint8_t(s.grabEngine));
     std::vector<uint8_t> out;
     put<uint32_t>(out, kMagic);
     put<uint32_t>(out, kVersion);
@@ -146,7 +147,7 @@ bool decodeUiSettings(const uint8_t* data, size_t size, UiSettings* out, std::st
         s.grabOnClick = r.get<uint8_t>() != 0;
         s.samplerOnDrag = r.get<uint8_t>() != 0;
     }
-    if (version >= 5) s.isNeural = r.get<uint8_t>() != 0;
+    if (version >= 5) s.grabEngine = r.get<uint8_t>();  // 4.5.0 wrote 0/1, later 0..2; sanitized() clamps
     if (!r.ok()) return fail("the editor state is truncated");
     *out = sanitized(s);
     return true;

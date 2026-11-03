@@ -23,15 +23,21 @@ std::vector<NoteEvent> quickGrabFromLines(const PitchLines& lines, float amount,
 // Quick Grab of a document: always the salience analysis of the spectrogram (as in v3), drum segments filtered out.
 std::vector<NoteEvent> quickGrabSnapshot(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, TaskControl* control = nullptr);
 
-enum class GrabEngine { Classic, Neural };
+// Stored as 0/1/2 in the editor state (UiSettings), keep the values.
+enum class GrabEngine { Classic = 0, Neural = 1, MuScriptor = 2 };
+constexpr int kGrabEngineCount = 3;
+
+const char* grabEngineName(GrabEngine engine);  // "Classic", "Neural", "MuScriptor"
+GrabEngine grabEngineFromIndex(int index);      // out of range -> Classic
 
 struct GrabOutcome {
     std::vector<NoteEvent> notes;
     GrabEngine used = GrabEngine::Classic;
-    std::string fallbackReason;  // set when Neural was asked for but Classic ran
+    std::string fallbackReason;  // set when Neural or MuScriptor was asked for but Classic ran
 };
 
-// Quick Grab with the chosen engine; Neural falls back to Classic (never fails) when the model or the audio is missing.
+// Quick Grab with the chosen engine; Neural and MuScriptor fall back to Classic (never fails) when the model or the audio
+// is missing. MuScriptor ignores `amount` (the model has no threshold) and keeps drums (GM notes).
 GrabOutcome quickGrabWithEngine(const Snapshot& snapshot, float amount, const FilterSettings& filter, double tuningCents, GrabEngine engine,
                                 TaskControl* control = nullptr);
 
