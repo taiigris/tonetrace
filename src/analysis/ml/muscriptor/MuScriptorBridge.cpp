@@ -67,7 +67,7 @@ std::shared_ptr<Model> load(const std::string& path, std::string* reason) {
 }
 
 bool transcribe(Model& model, const float* samples, size_t count, std::vector<Note>* out, const std::function<bool()>& cancel,
-                const std::function<void(float)>& progress, std::string* reason) {
+                const UpdateCallback& onUpdate, std::string* reason) {
     std::lock_guard<std::mutex> lock(model.mutex);  // one call at a time per instance (KV cache)
     if (!model.transcriber) {
         if (reason) *reason = "the model was released";
@@ -75,8 +75,13 @@ bool transcribe(Model& model, const float* samples, size_t count, std::vector<No
     }
     msl::TranscribeOptions options;  // no instrument selection: every instrument, drums included
     if (cancel) options.should_cancel = cancel;
+    std::vector<Note> fresh;
     const msl::NoteCallback onChunk = [&](const msl::TranscriptionUpdate& update) {
-        if (progress) progress(std::clamp(float(update.progress), 0.0f, 1.0f));
+        if (onUpdate) {
+            fresh.clear();
+            for (const msl::Note& n : update.new_notes) fresh.push_back({n.onset, n.offset, n.pitch, n.is_drum, n.program});
+            onUpdate(std::clamp(float(update.progress), 0.0f, 1.0f), update.finalized_through, fresh);
+        }
         return !(cancel && cancel());
     };
     try {

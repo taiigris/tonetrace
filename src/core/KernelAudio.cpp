@@ -1,224 +1,147 @@
-// TonetraceKernel: the audio thread. No allocation, no locks, no syscalls, no logging: only atomics,
-// preallocated buffers and the wait-free event queue (the worker turns events into log lines).
+// TonetraceKernel: the audio thread. Records the input, plays the song (original) and the notes (synth) mixed by the
+// ORIG/MIDI balance, reports levels. Never allocates, locks or logs (events go through the queue).
 #include <mach/mach_time.h>
 
 #include <algorithm>
 #include <cmath>
 
 #include "core/DenormalGuard.h"
-#include "core/Logger.h"
+#include "core/SongAudio.h"
 #include "core/TonetraceKernel.h"
 
 namespace ttr {
 
 namespace {
-constexpr float kAuditionVelocity = 0.8f;
-constexpr double kAuditionSeconds = 0.35;
-constexpr double kMinLoopSec = 0.05;
-constexpr long kFadeSamples = 96;           // click-free start / stop / loop wrap of the preview (about 2 ms)
-constexpr float kLimiterKnee = 0.8f;        // soft limiter on the preview bus: transparent below, never above 1.0
-constexpr double kSyncToleranceSec = 0.02;  // drift against the host position before the preview jumps
 constexpr double kNsPerSecond = 1e9;
-
-inline float softLimit(float x) {
-    const float a = std::fabs(x);
-    if (a <= kLimiterKnee) return x;
-    const float y = kLimiterKnee + (1.0f - kLimiterKnee) * std::tanh((a - kLimiterKnee) / (1.0f - kLimiterKnee));
-    return x < 0.0f ? -y : y;
-}
+constexpr double kMinSoundingSec = 0.02;  // a note that ends sooner than this after a seek is not restarted
 }  // namespace
 
-bool TonetraceKernel::previewActive() const { return previewing() && param(kParamRecord) < 0.5f && param(kParamBypass) < 0.5f; }
-
-// Song position (seconds on the recording's timeline) of the host's current block.
-double TonetraceKernel::syncedPosition() const {
-    const double beats = hostBeat_.load(std::memory_order_relaxed) - docStartPpq_.load(std::memory_order_relaxed);
-    return beats * 60.0 / docBpm_.load(std::memory_order_relaxed);
-}
-
-// Plays [playSample_, playSample_ + frames) of the preview timeline (sample + notes), wrapping at the region end.
-// With fadeOutOnly the block is the short tail after the preview was switched off.
-void TonetraceKernel::playBlock(int frames, bool fadeOutOnly) {
-    const NoteTable::View view = table_.acquire();
-    const long timeline = long(view.loopSec * sampleRate_);
-    long regionStart = 0, regionEnd = timeline;
-    double loopA = 0.0, loopB = 0.0;
-    if (previewLoop(&loopA, &loopB)) {
-        regionStart = long(loopA * sampleRate_);
-        regionEnd = std::min(timeline, long(loopB * sampleRate_));
-    } else {
-        regionStart = std::clamp(long(previewStart_.load() * sampleRate_), 0L, timeline);
-    }
-    if (regionEnd - regionStart < long(kMinLoopSec * sampleRate_)) { table_.release(); return; }
-
-    if (syncToHost_.load(std::memory_order_relaxed) && !fadeOutOnly) {  // follow the host song position
-        const long length = regionEnd - regionStart;
-        const long target = long(syncedPosition() * sampleRate_) - regionStart;
-        const long wrapped = regionStart + (target % length + length) % length;
-        long drift = std::labs(wrapped - playSample_);
-        drift = std::min(drift, length - drift);
-        if (drift > long(kSyncToleranceSec * sampleRate_)) {
-            playSample_ = wrapped;
-            fadeInDone_ = 0;
-            synth_.allNotesOff();
-        }
-    }
-
-    const float* audio = capture_.data();
-    const long audioCount = long(capture_.size());
-    int done = 0;
-    while (done < frames) {
-        if (playSample_ < regionStart || playSample_ >= regionEnd) {
-            playSample_ = regionStart;
-            if (fadeOutOnly) break;
-        }
-        const int segment = int(std::min<long>(frames - done, regionEnd - playSample_));
-        const double from = double(playSample_) / sampleRate_, to = double(playSample_ + segment) / sampleRate_;
-        for (int i = 0; i < view.count; ++i) {
-            const PreviewNote& n = view.notes[i];
-            if (n.startSec >= from && n.startSec < to) synth_.noteOn(n.pitch, n.velocity, double(n.endSec - n.startSec));
-        }
-        for (int i = 0; i < segment; ++i) {
-            const long idx = playSample_ + i;
-            sampleBuf_[size_t(done + i)] = idx < audioCount ? audio[idx] : 0.0f;
-        }
-        if (synth_.isActive()) synth_.render(synthBuf_.data() + done, segment);
-        for (int i = 0; i < segment; ++i) {  // fades: loop-wrap edges, start of playback, stop
-            const long pos = playSample_ + i;
-            const long k = done + i;  // sample index inside this block
-            float g = std::min(1.0f, float(regionEnd - pos) / float(kFadeSamples));
-            if (fadeOutOnly) {
-                g = std::min(g, 1.0f - float(fadeOutDone_ + k) / float(kFadeSamples));
-            } else {
-                g = std::min(g, float(pos - regionStart) / float(kFadeSamples));
-                g = std::min(g, float(fadeInDone_ + k) / float(kFadeSamples));
-            }
-            g = std::max(g, 0.0f);
-            synthBuf_[size_t(k)] *= g;
-            sampleBuf_[size_t(k)] *= g;
-        }
-        playSample_ += segment;
-        done += segment;
-    }
-    if (!fadeOutOnly) fadeInDone_ = std::min<long>(kFadeSamples, fadeInDone_ + frames);
-    playhead_.store(double(playSample_) / sampleRate_, std::memory_order_relaxed);
-    table_.release();
-}
-
-// Fills synthBuf_ / sampleBuf_ with the preview and auditions of this block. False: nothing to mix.
-bool TonetraceKernel::renderPreview(int frames) {
-    const bool host = hostPlaying_.load(std::memory_order_relaxed);
-    const bool sync = syncToHost_.load(std::memory_order_relaxed);
-    const bool wanted = previewActive();
-    const bool active = wanted && (!sync || (host && syncedPosition() >= 0.0));
-    int pitch = 0;
-    while (table_.popAudition(&pitch)) synth_.noteOn(pitch, kAuditionVelocity, kAuditionSeconds);
-
-    if (active) {
-        tailPending_ = false;
-        std::fill_n(synthBuf_.begin(), frames, 0.0f);
-        std::fill_n(sampleBuf_.begin(), frames, 0.0f);
-        if (!wasPreviewing_) {
-            playSample_ = sync ? long(std::max(0.0, syncedPosition()) * sampleRate_) : long(previewStart_.load() * sampleRate_);
-            fadeInDone_ = 0;
-            synth_.allNotesOff();
-        }
-        wasPreviewing_ = true;
-        playBlock(frames, false);
-        return true;
-    }
-    if (wasPreviewing_) {  // switched off: a short fade-out (possibly spread over several blocks) instead of a cut
-        wasPreviewing_ = false;
-        tailPending_ = true;
-        fadeOutDone_ = 0;
-    }
-    if (tailPending_) {
-        std::fill_n(synthBuf_.begin(), frames, 0.0f);
-        std::fill_n(sampleBuf_.begin(), frames, 0.0f);
-        const int n = int(std::min<long>(frames, kFadeSamples - fadeOutDone_));
-        playBlock(n, true);
-        fadeOutDone_ += n;
-        if (fadeOutDone_ >= kFadeSamples) {
-            tailPending_ = false;
-            synth_.allNotesOff();
-        }
-        return true;
-    }
-    if (playhead_.load(std::memory_order_relaxed) != 0.0) playhead_.store(0.0, std::memory_order_relaxed);
-    if (!synth_.isActive()) return false;  // idle: the host's signal is left untouched
-    std::fill_n(synthBuf_.begin(), frames, 0.0f);
-    std::fill_n(sampleBuf_.begin(), frames, 0.0f);
-    synth_.render(synthBuf_.data(), frames);  // auditions
-    return true;
-}
-
-// Adds the preview to the host's signal with smoothed Sound / Mix / Solo gains and a soft limiter on the preview bus.
-void TonetraceKernel::mixPreview(float* const* channels, int numChannels, int frames) {
-    const float mix = param(kParamMix);
-    const float sampleTarget = std::min(1.0f, 2.0f * (1.0f - mix));
-    const float noteTarget = std::min(1.0f, 2.0f * mix) * param(kParamSoundVolume);
-    const float dryTarget = param(kParamSolo) >= 0.5f && wasPreviewing_ ? 0.0f : 1.0f;
-    if (!gainsValid_) { sampleGain_ = sampleTarget; noteGain_ = noteTarget; gainsValid_ = true; }
-    const float inv = 1.0f / float(frames);
-    const float sampleStep = (sampleTarget - sampleGain_) * inv, noteStep = (noteTarget - noteGain_) * inv, dryStep = (dryTarget - dryGain_) * inv;
-    for (int i = 0; i < frames; ++i) {
-        sampleGain_ += sampleStep;
-        noteGain_ += noteStep;
-        dryGain_ += dryStep;
-        const float preview = softLimit(synthBuf_[size_t(i)] * noteGain_ + sampleBuf_[size_t(i)] * sampleGain_);
-        for (int c = 0; c < numChannels; ++c) channels[c][i] = channels[c][i] * dryGain_ + preview;
-    }
-    sampleGain_ = sampleTarget;
-    noteGain_ = noteTarget;
-    dryGain_ = dryTarget;
-}
-
-void TonetraceKernel::trackBlock(int frames, int numChannels) {
-    if (lastBlock_ == 0) events_.push({AudioEventCode::FirstBlock, frames, numChannels, 0.0});
-    else if (frames > maxSeenBlock_) events_.push({AudioEventCode::BlockSize, frames, maxSeenBlock_, 0.0});
-    lastBlock_ = frames;
-    maxSeenBlock_ = std::max(maxSeenBlock_, frames);
-}
-
 void TonetraceKernel::process(float* const* channels, int numChannels, int frames) {
-    if (numChannels <= 0 || frames <= 0 || frames > maxFrames_) return;
-    const ScopedDenormalGuard denormals;
-    const uint64_t startTicks = mach_absolute_time();
-    trackBlock(frames, numChannels);
-
+    if (!channels || numChannels <= 0 || frames <= 0) return;
+    ScopedDenormalGuard denormals;
+    const uint64_t started = mach_absolute_time();
+    if (firstBlock_) {
+        firstBlock_ = false;
+        events_.push({AudioEventCode::FirstBlock, frames, numChannels, 0.0});
+    }
     const bool bypass = param(kParamBypass) >= 0.5f;
-    const bool recording = param(kParamRecord) >= 0.5f && !bypass;
-    if (recording && !wasRecording_) {
-        capture_.reset();
-        captureFull_ = false;
-        recBpm_ = hostBpm_.load(std::memory_order_relaxed);
-        recBeat_ = hostBeat_.load(std::memory_order_relaxed);
-        recordSeq_.fetch_add(1);
-        status_.store(int(KernelStatus::Recording));
-        events_.push({AudioEventCode::RecordStart, int32_t(sampleRate_), 0, recBeat_});
-    } else if (!recording && wasRecording_) {
-        analysisSeq_.fetch_add(1);
-        status_.store(int(KernelStatus::Analysing));
-        events_.push({AudioEventCode::RecordStop, int32_t(capture_.size()), 0, double(capture_.size()) / sampleRate_});
+    for (int done = 0; done < frames && !bypass;) {  // never more than prepare() allocated for
+        const int n = std::min(frames - done, std::max(1, maxFrames_));
+        float* chunk[2] = {channels[0] + done, numChannels > 1 ? channels[1] + done : nullptr};
+        const int chunkChannels = std::min(numChannels, 2);
+        recordBlock(chunk, chunkChannels, n);
+        if (param(kParamMuteInput) >= 0.5f)
+            for (int c = 0; c < chunkChannels; ++c) std::fill(chunk[c], chunk[c] + n, 0.0f);
+        playBlock(chunk, chunkChannels, n);
+        updateMeters(chunk, chunkChannels, n);
+        done += n;
     }
-    wasRecording_ = recording;
+    audioEpoch_.fetch_add(1, std::memory_order_release);
+    const double elapsedNs = double(mach_absolute_time() - started) * nsPerTick_;
+    diagnostics_.recordBlock(frames, elapsedNs, double(frames) / sampleRate_ * kNsPerSecond);
+}
 
-    if (recording && !captureFull_) {
-        const float scale = 1.0f / float(numChannels);
-        for (int i = 0; i < frames; ++i) {
-            float sum = 0.0f;
-            for (int c = 0; c < numChannels; ++c) sum += channels[c][i];
-            mono_[size_t(i)] = sum * scale;
+void TonetraceKernel::recordBlock(float* const* channels, int numChannels, int frames) {
+    const bool wantRecord = param(kParamRecord) >= 0.5f;
+    if (wantRecord && !wasRecording_) {
+        captureL_.reset();
+        captureR_.reset();
+        wasRecording_ = true;
+        wasRecordingFlag_.store(true);
+        playing_.store(false);  // recording and playback do not mix
+        events_.push({AudioEventCode::RecordStart, int32_t(sampleRate_), 0, 0.0});
+    } else if (!wantRecord && wasRecording_) {
+        wasRecording_ = false;
+        wasRecordingFlag_.store(false);
+        recordStops_.fetch_add(1);
+        events_.push({AudioEventCode::RecordStop, int32_t(captureL_.size()), 0, double(captureL_.size()) / sampleRate_});
+    }
+    if (!wasRecording_ || captureL_.capacity() == 0) return;
+    const bool fitsLeft = captureL_.write(channels[0], size_t(frames));
+    const bool fitsRight = captureR_.write(numChannels > 1 ? channels[1] : channels[0], size_t(frames));
+    if (fitsLeft && fitsRight) return;
+    params_[kParamRecord].store(0.0f);  // full: stop here, the recording gets transcribed
+    wasRecording_ = false;
+    wasRecordingFlag_.store(false);
+    recordStops_.fetch_add(1);
+    events_.push({AudioEventCode::CaptureFull, int32_t(captureL_.size()), 0, 0.0});
+}
+
+// Starts the notes of this block at their sample; after a start or seek also the notes that are already sounding.
+void TonetraceKernel::scheduleNotes(const PlayTable::View& table, double fromSec, int frames, bool startSounding) {
+    if (table.count <= 0) return;
+    const double blockSec = double(frames) / sampleRate_;
+    if (startSounding) {
+        for (int i = table.firstFrom(fromSec - PlayTable::kMaxNoteSec); i < table.count && table.notes[i].startSec < fromSec; ++i) {
+            const PlayNote& n = table.notes[i];
+            if (n.endSec > fromSec + kMinSoundingSec && n.program != kDrumProgram) synth_.noteOn(n.pitch, n.program, n.gain, n.endSec - fromSec, 0);
         }
-        captureFull_ = !capture_.write(mono_.data(), size_t(frames));
-        if (captureFull_) events_.push({AudioEventCode::CaptureFull, int32_t(capture_.size()), 0, 0.0});
+    }
+    for (int i = table.firstFrom(fromSec); i < table.count && table.notes[i].startSec < fromSec + blockSec; ++i) {
+        const PlayNote& n = table.notes[i];
+        const int delay = std::clamp(int((n.startSec - fromSec) * sampleRate_), 0, frames - 1);
+        synth_.noteOn(n.pitch, n.program, n.gain, n.endSec - n.startSec, delay);
+    }
+}
+
+void TonetraceKernel::playBlock(float* const* channels, int numChannels, int frames) {
+    if (size_t(frames) > synthBuf_.size()) return;  // not prepared yet
+    double pos = positionSec_.load(std::memory_order_relaxed);
+    bool restart = false;
+    const double seekTo = seekRequest_.exchange(-1.0);
+    if (seekTo >= 0.0) {
+        pos = seekTo;
+        synth_.allNotesOff();
+        restart = true;
+    }
+    const bool playing = playing_.load(std::memory_order_relaxed);
+    if (playing && !wasPlaying_) restart = true;
+    if (!playing && wasPlaying_) synth_.allNotesOff();  // the voices fade out below
+    wasPlaying_ = playing;
+    if (!playing && !synth_.isActive()) {
+        for (auto& level : levels_) level.store(0.0f, std::memory_order_relaxed);
+        return;
     }
 
-    if (!bypass && renderPreview(frames)) mixPreview(channels, numChannels, frames);
-    else gainsValid_ = false;
+    std::fill(synthBuf_.begin(), synthBuf_.begin() + frames, 0.0f);
+    if (playing) {
+        const PlayTable::View table = table_.acquire();
+        scheduleNotes(table, pos, frames, restart);
+        table_.release();
+    }
+    synth_.render(synthBuf_.data(), frames);
 
-    const double budgetNs = double(frames) / sampleRate_ * kNsPerSecond;
-    diagnostics_.recordBlock(frames, double(mach_absolute_time() - startTicks) * nsPerTick_, budgetNs);
+    const float mix = param(kParamMix), volume = faderToGain(param(kParamVolume));
+    const float origGain = std::min(1.0f, 2.0f * (1.0f - mix)) * volume, midiGain = std::min(1.0f, 2.0f * mix) * volume;
+    const SongAudio* audio = playing ? playAudio_.load(std::memory_order_acquire) : nullptr;
+    const double step = audio ? audio->sampleRate / sampleRate_ : 0.0;
+    double src = audio ? pos * audio->sampleRate : 0.0;
+    for (int i = 0; i < frames; ++i) {
+        float left = 0.0f, right = 0.0f;
+        if (audio) {
+            sampleAt(*audio, src, &left, &right);
+            src += step;
+        }
+        const float note = synthBuf_[size_t(i)] * midiGain;
+        channels[0][i] += left * origGain + note;
+        if (numChannels > 1) channels[1][i] += right * origGain + note;
+    }
+    for (int s = 0; s < NoteSynth::kLevelSlots; ++s) levels_[size_t(s)].store(synth_.level(s) * midiGain, std::memory_order_relaxed);
+    if (!playing) return;
+    pos += double(frames) / sampleRate_;
+    const double length = docLength_.load(std::memory_order_relaxed);
+    if (pos >= length) {  // the end: stop there (Play starts again from the beginning)
+        pos = length;
+        playing_.store(false);
+    }
+    if (seekRequest_.load(std::memory_order_relaxed) < 0.0) positionSec_.store(pos, std::memory_order_relaxed);
+}
+
+void TonetraceKernel::updateMeters(float* const* channels, int numChannels, int frames) {
+    float peak = 0.0f;
+    for (int c = 0; c < numChannels; ++c)
+        for (int i = 0; i < frames; ++i) peak = std::max(peak, std::fabs(channels[c][i]));
+    masterLevel_.store(peak, std::memory_order_relaxed);
 }
 
 }  // namespace ttr

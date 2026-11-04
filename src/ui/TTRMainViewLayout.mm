@@ -1,151 +1,242 @@
-// Layout and drawing of the main view (1280 x 720 by default, 1024 x 600 at the minimum): a 48 pt header across the top,
-// piano + big map (with a compact waveform lane above it) on the left and a 200 pt column of controls on the right.
-// Everything sits on an 8 pt grid; the options popover floats below the header.
+// Construction and layout of the main view (1280 x 800 by default, 1024 x 640 at the minimum):
+//   top bar  | logo · rewind play follow record · time · model · ORIG/MIDI · volume · mute · options
+//   sidebar  | INSTRUMENTS + one strip per instrument, MASTER meter at the bottom
+//   main     | song title · export tempo · Export MIDI out · Drag MIDI out · clear
+//            | waveform lane with the ruler, piano roll, scroll bar, status line with the zoom slider
+#include <algorithm>
+#include <cmath>
+
 #import "ui/TTRMainViewInternal.h"
 #import "ui/TTRTheme.h"
 
-static const CGFloat kGrid = 8, kPad = 16, kButtonH = 32, kSmallH = 24, kKnobH = 64, kRecordH = 80, kDragH = 40, kInfoMinH = 56, kInfoMaxH = 72;
-static const CGFloat kSliderH = 48, kGrabW = 48, kStepW = 32, kIconW = 32, kSnapW = 104, kLogoW = 168;
-static const CGFloat kOptionsW = 288, kOptionsRowH = 28, kOptionsPad = 16;
+const CGFloat kTTRTopBarHeight = 72, kTTRSidebarWidth = 300, kTTRSongHeaderHeight = 64, kTTRWaveHeight = 168, kTTRStatusHeight = 36, kTTRScrollHeight = 10,
+              kTTRMasterHeight = 64;
+static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
+
+@implementation TTRMainView_v1 (Build)
+
+- (TTRGlyphButton_v1*)addGlyph:(TTRTransportGlyph_v1)glyph title:(NSString*)title tip:(NSString*)tip action:(void (^)(void))action {
+    TTRGlyphButton_v1* b = [[TTRGlyphButton_v1 alloc] initWithGlyph:glyph title:title];
+    b.toolTip = tip;
+    b.onClick = action;
+    [self addSubview:b];
+    return b;
+}
+
+- (TTRLineSlider_v1*)addParamSlider:(int)paramId {
+    TTRLineSlider_v1* s = [[TTRLineSlider_v1 alloc] initWithFrame:NSZeroRect];
+    s.defaultValue = ttr::paramSpec(paramId).defaultValue;
+    auto bridge = _bridge;
+    s.onBeginEdit = ^{ bridge->beginEdit(paramId); };
+    s.onChange = ^(double v) { bridge->setParameter(paramId, float(v)); };
+    s.onEndEdit = ^{ bridge->endEdit(paramId); };
+    [self addSubview:s];
+    return s;
+}
+
+- (void)buildTopBar {
+    __weak TTRMainView_v1* weak = self;
+    _logo = [[TTRLogoView_v1 alloc] initWithFrame:NSZeroRect];
+    _logo.toolTip = @"About Tonetrace";
+    _logo.onClick = ^{ [weak showAbout]; };
+    [self addSubview:_logo];
+    _rewindButton = [self addGlyph:TTRTransportRewind title:nil tip:@"Back to the start (Return)" action:^{ [weak rewind]; }];
+    _playButton = [self addGlyph:TTRTransportPlay title:nil tip:@"Play / pause the song and the notes (Space) - works while the transcription is still running"
+                          action:^{ [weak togglePlay]; }];
+    _followButton = [self addGlyph:TTRTransportFollow title:nil tip:@"Follow the playhead" action:^{
+        TTRMainView_v1* self = weak;
+        if (!self) return;
+        self->_tl->follow = !self->_tl->follow;
+        [self refreshNow];
+    }];
+    _recordButton = [self addGlyph:TTRTransportRecord title:nil tip:@"Record the audio playing through this track; stop to transcribe it" action:^{ [weak toggleRecord]; }];
+    _modelPill = [[TTRPill_v1 alloc] initWithFrame:NSZeroRect];
+    _modelPill.toolTip = @"Transcription model (MuScriptor medium, runs on this Mac). Downloads 620 MB once on first use; weights CC BY-NC 4.0";
+    [self addSubview:_modelPill];
+    _mixSlider = [self addParamSlider:ttr::kParamMix];
+    _mixSlider.leftLabel = @"ORIG";
+    _mixSlider.rightLabel = @"MIDI";
+    _mixSlider.toolTip = @"Playback balance: the original song (left) and the transcribed notes (right)";
+    _volumeSlider = [self addParamSlider:ttr::kParamVolume];
+    _volumeSlider.valueText = ^NSString*(double v) {
+        const float db = ttr::faderToDb(float(v));
+        return std::isfinite(db) ? [NSString stringWithFormat:@"%.1f", db] : @"-inf";
+    };
+    _volumeSlider.toolTip = @"Playback volume (double-click: 0 dB)";
+    _volumeSlider.leftLabel = @"VOL";
+    _muteButton = [self addGlyph:TTRTransportSpeaker title:@"MUTE" tip:@"Silence the track's own audio in the output (hear only Tonetrace's playback)" action:^{
+        TTRMainView_v1* self = weak;
+        if (!self) return;
+        [self setParam:ttr::kParamMuteInput value:self->_kernel->param(ttr::kParamMuteInput) >= 0.5f ? 0.0f : 1.0f];
+        [self refreshNow];
+    }];
+    _muteButton.isWarning = YES;
+    _optionsButton = [self addGlyph:TTRTransportOptions title:nil tip:@"Diagnostics: version, host, load, model status, log folder" action:^{ [weak toggleDiagnostics]; }];
+}
+
+- (void)buildMainArea {
+    __weak TTRMainView_v1* weak = self;
+    _tempoStepper = [[TTRStepper_v1 alloc] initWithFrame:NSZeroRect];
+    _tempoStepper.title = @"EXPORT TEMPO";
+    _tempoStepper.toolTip = @"Tempo of the exported MIDI file (the song's tempo is not detected): drag, scroll or click the arrows";
+    auto kernel = _kernel;
+    _tempoStepper.onChange = ^(double v) { kernel->setExportBpm(v); };
+    [self addSubview:_tempoStepper];
+    _exportButton = [self addGlyph:TTRTransportFolder title:@"Export MIDI out" tip:@"Save the MIDI file (one track per audible instrument) (Cmd+E)"
+                            action:^{ [weak exportMidiWithPanel]; }];
+    _dragButton = [[TTRGlyphDragButton_v1 alloc] initWithGlyph:TTRTransportDownload title:@"Drag MIDI out"];
+    _dragButton.isAccent = YES;
+    _dragButton.toolTip = @"Drag the MIDI file into your DAW: one track per audible instrument, drums on channel 10";
+    _dragButton.dragFileProvider = ^NSURL*(void) { return [weak writeMidiToMusicFolder]; };
+    [self addSubview:_dragButton];
+    _clearButton = [self addGlyph:TTRTransportTrash title:nil tip:@"Remove the song and its notes" action:^{ [weak clearSong]; }];
+    _openButton = [self addGlyph:TTRTransportFolder title:@"Open song…" tip:@"Choose an audio file (Cmd+O)" action:^{ [weak openSongPanel]; }];
+
+    _wave = [[TTRWaveLane_v1 alloc] initWithTimeline:_tl];
+    _wave.onSeek = ^(double sec) { [weak seekTo:sec]; };
+    _wave.onWheel = ^(NSEvent* e, CGFloat x) { [weak handleWheel:e noteAreaX:x]; };
+    _roll = [[TTRPianoRoll_v1 alloc] initWithTimeline:_tl];
+    _roll.onSeek = ^(double sec) { [weak seekTo:sec]; };
+    _roll.onWheel = ^(NSEvent* e, CGFloat x) { [weak handleWheel:e noteAreaX:x]; };
+    _roll.onMagnify = ^(NSEvent* e, CGFloat x) { [weak handleMagnify:e noteAreaX:x]; };
+    _scroll = [[TTRScrollBar_v1 alloc] initWithFrame:NSZeroRect];
+    _scroll.onScroll = ^(double offset) {
+        TTRMainView_v1* self = weak;
+        if (!self) return;
+        self->_tl->isFit = false;
+        self->_tl->scrollSec = offset;
+        [self refreshNow];
+    };
+    _zoomSlider = [[TTRLineSlider_v1 alloc] initWithFrame:NSZeroRect];
+    _zoomSlider.toolTip = @"Time zoom (Cmd+wheel or pinch on the notes); double-click shows the whole song";
+    _zoomSlider.defaultValue = 0.0;
+    _zoomSlider.trackColor = 0x6A707B;
+    _zoomSlider.onChange = ^(double v) {
+        TTRMainView_v1* self = weak;
+        if (!self) return;
+        if (v <= 0.0) { self->_tl->isFit = true; [self refreshNow]; return; }
+        [self zoomTo:ttr::kMinPixelsPerSecond * std::pow(ttr::kMaxPixelsPerSecond / ttr::kMinPixelsPerSecond, v) aroundX:-1];
+    };
+    for (NSView* v in @[ _wave, _roll, _scroll, _zoomSlider ]) [self addSubview:v];
+}
+
+- (void)buildSidebar {
+    _strips = [[NSView alloc] initWithFrame:NSZeroRect];
+    _strips.wantsLayer = YES;
+    _strips.layer.masksToBounds = YES;
+    [self addSubview:_strips];
+    _masterMeter = [[TTRMeter_v1 alloc] initWithFrame:NSZeroRect];
+    _masterMeter.toolTip = @"Output level of the plug-in";
+    [self addSubview:_masterMeter];
+}
+
+- (void)buildSubviews {
+    [self buildTopBar];
+    [self buildSidebar];
+    [self buildMainArea];
+    __weak TTRMainView_v1* weak = self;
+    _banner = [[TTRBannerView_v1 alloc] initWithFrame:NSZeroRect];
+    _diag = [[TTRDiagnosticsView_v1 alloc] initWithFrame:NSZeroRect];
+    _diag.onClose = ^{ [weak toggleDiagnostics]; };
+    _diag.onMessage = ^(NSString* m) { [weak showMessage:m]; };
+    _about = [[TTRAboutView_v1 alloc] initWithFrame:NSZeroRect];
+    _about.onOpenDiagnostics = ^{ [weak toggleDiagnostics]; };
+    for (NSView* v in @[ _banner, _diag, _about ]) [self addSubview:v];  // overlays on top
+}
+
+@end
 
 @implementation TTRMainView_v1 (Layout)
 
-- (void)layoutHeader:(CGFloat)W {
-    const CGFloat y = (kTTRHeaderHeight - kIconW) / 2;
-    CGFloat x = W - kPad - kIconW;
-    _infoButton.frame = NSMakeRect(x, y, kIconW, kIconW);
-    x -= kGrid + kIconW;
-    _optionsButton.frame = NSMakeRect(x, y, kIconW, kIconW);
-    x -= kGrid + kIconW;
-    _viewButton.frame = NSMakeRect(x, y, kIconW, kIconW);
-    x -= kGrid + kSnapW;
-    _snap.frame = NSMakeRect(x, y, kSnapW, kIconW);
-    x -= kGrid + kIconW;
-    _helpButton.frame = NSMakeRect(x, y, kIconW, kIconW);
-    _logoView.frame = NSMakeRect(kPad, y, kLogoW, kIconW);
-    _headerClip = NSMakeRect(kPad + kLogoW + kPad, 0, MAX(0.0, x - kPad - (kPad + kLogoW + kPad)), kTTRHeaderHeight);
+- (NSRect)songHeaderRect { return NSMakeRect(kTTRSidebarWidth, kTTRTopBarHeight, self.bounds.size.width - kTTRSidebarWidth, kTTRSongHeaderHeight); }
+
+- (NSRect)statusRect {
+    const NSRect b = self.bounds;
+    return NSMakeRect(kTTRSidebarWidth, b.size.height - kTTRStatusHeight, b.size.width - kTTRSidebarWidth, kTTRStatusHeight);
 }
 
-// Right column: knobs, speed, quick grab, record, reset / preview from the top; the highlighted Drag MIDI and the small actions from the bottom.
-- (void)layoutSidebar:(CGFloat)W height:(CGFloat)H {
-    const CGFloat x = W - kTTRPanelWidth + kPad, w = kTTRPanelWidth - 2 * kPad, half = (w - kGrid) / 2;
-    CGFloat y = kTTRHeaderHeight + kPad;
-    _gainKnob.frame = NSMakeRect(x, y, half, kKnobH);
-    _rangeKnob.frame = NSMakeRect(x + half + kGrid, y, half, kKnobH);
-    y += kKnobH + kGrid;
-    _speedMinus.frame = NSMakeRect(x, y, kStepW, kButtonH);
-    _speedReadout.frame = NSMakeRect(x + kStepW + kGrid, y, w - 2 * (kStepW + kGrid), kButtonH);
-    _speedPlus.frame = NSMakeRect(x + w - kStepW, y, kStepW, kButtonH);
-    y += kButtonH + kGrid;
-    _quickGrabSlider.frame = NSMakeRect(x, y, w - kGrabW - kGrid, kSliderH);
-    _grabButton.frame = NSMakeRect(x + w - kGrabW, y + kSliderH - kButtonH, kGrabW, kButtonH);
-    y += kSliderH + kGrid;
-    _recordButton.frame = NSMakeRect(x, y, w, kRecordH);
-    y += kRecordH + kGrid;
-    _resetButton.frame = NSMakeRect(x, y, half, kButtonH);
-    _previewButton.frame = NSMakeRect(x + half + kGrid, y, half, kButtonH);
-    y += kButtonH + kGrid;
-    _loadSongButton.frame = NSMakeRect(x, y, w, kButtonH);
-    y += kButtonH + kGrid;
-
-    CGFloat bottom = H - kPad;  // bottom group, built upwards
-    auto upward = [&](NSView* v, CGFloat h, CGFloat gap) { bottom -= h; v.frame = NSMakeRect(x, bottom, w, h); bottom -= gap; };
-    _undoButton.frame = NSMakeRect(x, bottom - kSmallH, half, kSmallH);
-    _redoButton.frame = NSMakeRect(x + half + kGrid, bottom - kSmallH, half, kSmallH);
-    bottom -= kSmallH + 4;
-    upward(_samplerButton, kSmallH, 4);
-    upward(_saveButton, kSmallH, kGrid);
-    upward(_dragButton, kDragH, kGrid);
-    const CGFloat free = bottom - y;
-    const CGFloat infoH = MIN(kInfoMaxH, MAX(0.0, free));
-    _info.frame = NSMakeRect(x, y, w, infoH);
-    _info.hidden = infoH < kInfoMinH;
+- (NSRect)noteAreaRect {
+    const NSRect header = [self songHeaderRect], status = [self statusRect];
+    return NSMakeRect(header.origin.x, NSMaxY(header), header.size.width, status.origin.y - NSMaxY(header));
 }
 
-// The options popover: below the header, right-aligned. Returns nothing; subviews live in its own coordinates.
-- (void)layoutOptions:(CGFloat)W {
-    const CGFloat w = kOptionsW - 2 * kOptionsPad, half = (w - kGrid) / 2, third = (w - 2 * kGrid) / 3;
-    CGFloat y = kOptionsPad;
-    auto pair = [&](NSView* l, NSView* r) { l.frame = NSMakeRect(kOptionsPad, y, half, kOptionsRowH); r.frame = NSMakeRect(kOptionsPad + half + kGrid, y, half, kOptionsRowH); y += kOptionsRowH + kGrid; };
-    pair(_hideDrumsButton, _fundamentalsButton);
-    pair(_magnetButton, _grabOnClickButton);
-    pair(_alignButton, _waveButton);
-    pair(_syncButton, _samplerDragButton);
-    _engineButton.frame = NSMakeRect(kOptionsPad, y, w, kOptionsRowH);
-    y += kOptionsRowH + kGrid;
-    _tuningMinus.frame = NSMakeRect(kOptionsPad, y, kOptionsRowH, kOptionsRowH);
-    _tuningReadout.frame = NSMakeRect(kOptionsPad + kOptionsRowH + kGrid, y, w - 2 * (kOptionsRowH + kGrid), kOptionsRowH);
-    _tuningPlus.frame = NSMakeRect(kOptionsPad + w - kOptionsRowH, y, kOptionsRowH, kOptionsRowH);
-    y += kOptionsRowH + kGrid;
-    _soundKnob.frame = NSMakeRect(kOptionsPad, y, third, kKnobH);
-    _mixKnob.frame = NSMakeRect(kOptionsPad + third + kGrid, y, third, kKnobH);
-    _soloButton.frame = NSMakeRect(kOptionsPad + 2 * (third + kGrid), y + (kKnobH - kOptionsRowH) / 2, third, kOptionsRowH);
-    y += kKnobH + kGrid;
-    _clearButton.frame = NSMakeRect(kOptionsPad, y, third, kOptionsRowH);
-    _deleteButton.frame = NSMakeRect(kOptionsPad + third + kGrid, y, third, kOptionsRowH);
-    _duplicateButton.frame = NSMakeRect(kOptionsPad + 2 * (third + kGrid), y, third, kOptionsRowH);
-    y += kOptionsRowH + kGrid;
-    _bridgeReadout.frame = NSMakeRect(kOptionsPad, y, w, kOptionsRowH);
-    y += kOptionsRowH + kOptionsPad;
-    _options.frame = NSMakeRect(W - kPad - kOptionsW, kTTRHeaderHeight + 4, kOptionsW, y);
+// Left to right: logo, transport, time; right to left: options, MUTE, volume, ORIG/MIDI; the model pill takes what is
+// left in the middle and is hidden when the window is too narrow (the status line names the model anyway).
+- (void)layoutTopBar:(CGFloat)W {
+    const CGFloat y = (kTTRTopBarHeight - kButton) / 2;
+    _logo.frame = NSMakeRect(kPad, y + 7, 150, 26);
+    CGFloat x = kPad + 150 + 20;
+    for (TTRGlyphButton_v1* b in @[ _rewindButton, _playButton, _followButton, _recordButton ]) {
+        b.frame = NSMakeRect(x, y, kButton, kButton);
+        x += kButton + 6;
+    }
+    x += 12;
+    _timeRect = NSMakeRect(x, y, 206, kButton);
+    x += 206 + 12;
+    const BOOL narrow = W < 1260, tight = W < 1150;
+    CGFloat right = W - kPad;
+    _optionsButton.frame = NSMakeRect(right - kButton, y, kButton, kButton);
+    right -= kButton + kGap;
+    const CGFloat muteW = tight ? kButton : 104;  // a tight window shows the speaker only
+    _muteButton.title = tight ? nil : @"MUTE";
+    _muteButton.frame = NSMakeRect(right - muteW, y, muteW, kButton);
+    right -= muteW + 12;
+    const CGFloat volumeW = tight ? 110 : narrow ? 120 : 150;
+    _volumeSlider.frame = NSMakeRect(right - volumeW, y, volumeW, kButton);
+    right -= volumeW + 16;
+    const CGFloat mixW = tight ? 140 : narrow ? 150 : 176;
+    _mixSlider.frame = NSMakeRect(right - mixW, y, mixW, kButton);
+    right -= mixW + 16;
+    _modelPill.hidden = right - x < 120;
+    _modelPill.frame = NSMakeRect(x, y, std::min<CGFloat>(170, right - x), kButton);
+}
+
+- (void)layoutSidebar:(CGFloat)H {
+    const CGFloat top = kTTRTopBarHeight + kStripTop;
+    const CGFloat masterY = H - kTTRMasterHeight;
+    _strips.frame = NSMakeRect(0, top, kTTRSidebarWidth - 1, std::max<CGFloat>(0, masterY - top));
+    _masterMeter.frame = NSMakeRect(kPad, masterY + 40, kTTRSidebarWidth - 2 * kPad, 6);
+    const CGFloat contentH = CGFloat(_stripByProgram.size()) * kTTRStripHeight;
+    _stripScroll = std::clamp<CGFloat>(_stripScroll, 0, std::max<CGFloat>(0, contentH - _strips.frame.size.height));
+    CGFloat y = _strips.frame.size.height - kTTRStripHeight + _stripScroll;  // the container is not flipped: build from the top
+    for (const auto& entry : _stripByProgram) {
+        entry.second.frame = NSMakeRect(0, y, kTTRSidebarWidth - 1, kTTRStripHeight);
+        y -= kTTRStripHeight;
+    }
+}
+
+- (void)layoutMainArea {
+    const NSRect header = [self songHeaderRect], area = [self noteAreaRect], status = [self statusRect];
+    const CGFloat y = header.origin.y + (header.size.height - kButton) / 2;
+    const BOOL compact = self.bounds.size.width < 1200;  // the song title keeps some room
+    CGFloat right = NSMaxX(header) - kPad;
+    _clearButton.frame = NSMakeRect(right - kButton, y, kButton, kButton);
+    right -= kButton + kGap;
+    const CGFloat dragW = compact ? 160 : 178, exportW = compact ? kButton : 182, tempoW = compact ? 176 : 196;
+    _dragButton.frame = NSMakeRect(right - dragW, y, dragW, kButton);
+    right -= dragW + kGap;
+    _exportButton.title = compact ? nil : @"Export MIDI out";
+    _exportButton.frame = NSMakeRect(right - exportW, y, exportW, kButton);
+    right -= exportW + kGap;
+    _tempoStepper.frame = NSMakeRect(right - tempoW, y, tempoW, kButton);
+    const CGFloat waveH = std::min(kTTRWaveHeight, area.size.height * 0.32);
+    _wave.frame = NSMakeRect(area.origin.x, area.origin.y, area.size.width, waveH);
+    const CGFloat rollY = NSMaxY(_wave.frame);
+    _roll.frame = NSMakeRect(area.origin.x, rollY, area.size.width, std::max<CGFloat>(40, NSMaxY(area) - rollY - kTTRScrollHeight));
+    _scroll.frame = NSMakeRect(area.origin.x + kTTRKeyboardWidth, NSMaxY(_roll.frame), area.size.width - kTTRKeyboardWidth, kTTRScrollHeight);
+    _zoomSlider.frame = NSMakeRect(NSMaxX(status) - 200, status.origin.y + 4, 180, status.size.height - 8);
+    _openButton.frame = NSMakeRect(NSMidX(area) - 90, NSMidY(area) + 6, 180, kButton);
 }
 
 - (void)layoutControls {
     const CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
-    const CGFloat leftW = W - kTTRPanelWidth;
-    [self layoutHeader:W];
-
-    // left: waveform lane + ruler, map, scroll bar, piano
-    const CGFloat laneH = _showWave ? kTTRWaveLaneHeight : 0, waveH = kTTRRulerHeight + laneH;
-    const CGFloat mapX = kTTRMargin + kTTRPianoWidth, mapW = MAX(60, leftW - mapX - kTTRMargin);
-    const CGFloat waveY = kTTRHeaderHeight + kGrid, mapY = waveY + waveH + 4;
-    const CGFloat scrollY = H - kGrid - kTTRScrollHeight;
-    _wave.frame = NSMakeRect(mapX, waveY, mapW, waveH);
-    _map.frame = NSMakeRect(mapX, mapY, mapW, MAX(60, scrollY - 4 - mapY));
-    _piano.frame = NSMakeRect(kTTRMargin, mapY, kTTRPianoWidth, _map.frame.size.height);
-    _scroll.frame = NSMakeRect(mapX, scrollY, mapW, kTTRScrollHeight);
-    [self layoutSidebar:W height:H];
-    [self layoutOptions:W];
-    _banner.frame = NSMakeRect(mapX + kGrid, mapY + kGrid, MAX(60, mapW - 2 * kGrid), 40);
-    _diag.frame = NSMakeRect(0, kTTRHeaderHeight, leftW, H - kTTRHeaderHeight);
+    [self layoutTopBar:W];
+    [self layoutSidebar:H];
+    [self layoutMainArea];
+    const NSRect area = [self noteAreaRect];
+    _banner.frame = NSMakeRect(area.origin.x + 16, area.origin.y + 12, MAX(60, area.size.width - 32), 40);
+    _diag.frame = NSMakeRect(kTTRSidebarWidth, kTTRTopBarHeight, W - kTTRSidebarWidth, H - kTTRTopBarHeight);
     _about.frame = self.bounds;
-    [self applyFitToView];
-}
-
-// ------------------------------------------------------------ drawing
-
-- (void)drawRect:(NSRect)dirty {
-    const NSRect b = self.bounds;
-    const CGFloat leftW = b.size.width - kTTRPanelWidth;
-    [TTR_BG setFill];
-    NSRectFill(b);
-    [TTR_PANEL setFill];
-    NSRectFill(NSMakeRect(leftW, kTTRHeaderHeight, kTTRPanelWidth, b.size.height - kTTRHeaderHeight));
-    NSRectFill(NSMakeRect(0, 0, b.size.width, kTTRHeaderHeight));
-    [TTR_BORDER setFill];
-    NSRectFill(NSMakeRect(0, kTTRHeaderHeight - 1, b.size.width, 1));
-    NSRectFill(NSMakeRect(leftW, kTTRHeaderHeight, 1, b.size.height - kTTRHeaderHeight));
-    [self drawHeaderText];
-}
-
-// Centre of the header: the status (key, BPM, tuning, notes) and below it a dim one-line hint (hover help, messages, progress).
-- (void)drawHeaderText {
-    const NSRect c = _headerClip;
-    if (c.size.width < 40) return;
-    NSMutableParagraphStyle* style = [[NSMutableParagraphStyle alloc] init];
-    style.lineBreakMode = NSLineBreakByTruncatingTail;
-    style.alignment = NSTextAlignmentCenter;
-    const BOOL isMessage = _transientMessage && CACurrentMediaTime() < _transientUntil;
-    NSFont *statusFont = TTRFont(13, NSFontWeightSemibold), *hintFont = TTRFont(11);
-    NSMutableDictionary* status = [TTRTextAttrs(statusFont, TTR_TEXT) mutableCopy];
-    NSMutableDictionary* hint = [TTRTextAttrs(hintFont, isMessage ? TTR_TEXT : TTR_DIM) mutableCopy];
-    status[NSParagraphStyleAttributeName] = style;
-    hint[NSParagraphStyleAttributeName] = style;
-    const CGFloat hintH = ceil(hintFont.ascender - hintFont.descender), statusH = ceil(statusFont.ascender - statusFont.descender);
-    const BOOL hasHint = _statusText.length > 0;
-    const CGFloat top = hasHint ? 7 : floor((kTTRHeaderHeight - statusH) / 2);
-    [_headerText ?: @"" drawInRect:NSMakeRect(c.origin.x, top, c.size.width, statusH) withAttributes:status];
-    if (hasHint) [_statusText drawInRect:NSMakeRect(c.origin.x, top + statusH + 2, c.size.width, hintH) withAttributes:hint];
 }
 
 @end

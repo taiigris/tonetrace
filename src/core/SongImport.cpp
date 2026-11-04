@@ -29,8 +29,8 @@ std::string lowerExtension(const std::string& path) {
 }
 
 bool isUsable(const DecodedAudio& audio) {
-    if (audio.mono.empty() || !(audio.sampleRate > 0.0)) return false;
-    return std::all_of(audio.mono.begin(), audio.mono.end(), [](float v) { return std::isfinite(v); });
+    if (audio.samples.empty() || audio.channels < 1 || audio.channels > 2 || !(audio.sampleRate > 0.0)) return false;
+    return audio.samples.size() % size_t(audio.channels) == 0;
 }
 
 }  // namespace

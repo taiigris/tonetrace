@@ -22,9 +22,15 @@ double blackman(double x) {
 
 }  // namespace
 
-std::vector<float> resampleMono(const float* samples, size_t count, double fromRate, double toRate) {
+// Windowed-sinc resampling of any sample type (`scale` turns a sample into -1..1); int16 input needs no float copy.
+template <class T>
+std::vector<float> resampleImpl(const T* samples, size_t count, double fromRate, double toRate, double scale) {
     if (!samples || count == 0 || fromRate <= 0.0 || toRate <= 0.0) return {};
-    if (std::abs(fromRate - toRate) < 1e-6) return std::vector<float>(samples, samples + count);
+    if (std::abs(fromRate - toRate) < 1e-6) {
+        std::vector<float> copy(count);
+        for (size_t i = 0; i < count; ++i) copy[i] = float(double(samples[i]) * scale);
+        return copy;
+    }
     const double ratio = fromRate / toRate;                          // input samples per output sample
     const double cutoff = kCutoffShare * std::min(1.0, 1.0 / ratio);  // relative to the input Nyquist rate
     const double halfWidth = kHalfTaps / cutoff;                     // input samples on each side
@@ -39,15 +45,17 @@ std::vector<float> resampleMono(const float* samples, size_t count, double fromR
             const double d = t - double(k);
             sum += double(samples[k]) * cutoff * sinc(cutoff * d) * blackman(d / halfWidth);
         }
-        out[n] = float(sum);
+        out[n] = float(sum * scale);
     }
     return out;
 }
 
+std::vector<float> resampleMono(const float* samples, size_t count, double fromRate, double toRate) {
+    return resampleImpl(samples, count, fromRate, toRate, 1.0);
+}
+
 std::vector<float> resampleInt16(const int16_t* samples, size_t count, double fromRate, double toRate) {
-    std::vector<float> f(count);
-    for (size_t i = 0; i < count; ++i) f[i] = float(samples[i]) * kInt16Scale;
-    return resampleMono(f.data(), f.size(), fromRate, toRate);
+    return resampleImpl(samples, count, fromRate, toRate, double(kInt16Scale));
 }
 
 }  // namespace ttr

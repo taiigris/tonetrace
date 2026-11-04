@@ -1,60 +1,32 @@
-# Tonetrace 4.7.0 - performance
+# Tonetrace 5.0.0 - performance
 
-Measured by `tonetrace_bench` on this Mac (Version 27.0.1 (Build 26A434)), Release build, universal binary running natively.
+Measured by `tonetrace_bench` on this Mac (Version 27.0.1 (Build 26A434)), Release build, universal binary running natively. The transcription itself (MuScriptor) runs on its own thread and is measured by `tonetrace_mstest` (about a third of the song length on Apple Silicon).
 
-## Memory per instance
+## Memory (one instance)
 
-| Sample rate | prepared (idle) | recording 30 s | recording 120 s (buffer full) | after the analysis of 120 s |
-|---|---|---|---|---|
-| 44100 Hz | 0.4 MB | 10.9 MB | 40.0 MB | 103.4 MB |
-| 48000 Hz | 0.0 MB | 10.7 MB | 44.2 MB | 64.7 MB |
-| 96000 Hz | 0.0 MB | 16.2 MB | 64.4 MB | 71.9 MB |
-| 192000 Hz | 0.0 MB | 26.7 MB | 108.4 MB | 113.6 MB |
-
-The capture buffer stays at the host rate (one mono float per sample: the audio thread only copies) but is committed lazily, so memory grows with the recording and an empty or idle instance costs only a few MB. Down-sampling in the worker would save the rate-dependent part at 96/192 kHz, but would make the audio thread write into an extra ring and the preview resample on the fly; the measured cost above does not justify that.
-
-## Audio thread (48 kHz, 64 frames per block = 1.33 ms budget)
-
-| Scenario | mean | p99.9 | max |
+| Case | Measured | Target | |
 |---|---|---|---|
-| Idle (no Record, no Preview) | 0.0036 % | 0.0063 % | 0.0094 % |
-| Record (mono mix into the capture buffer) | 0.0063 % | 0.0094 % | 0.0156 % |
-| Preview: recording + 16 synth voices + limiter | 0.4558 % | 0.6219 % | 1.5781 % |
-| Preview synced to the host | 0.5453 % | 0.7188 % | 1.7156 % |
+| Instance with a 10 minute song, right after loading (decoder buffers not yet returned) | 194.8 MB | | |
+| Empty instance (record buffers, note tables) | 6.2 MB | | |
+| Instance with a 10 minute song loaded | 194.828 MB | < 250 MB | reached |
 
-| Target | measured | limit | |
+## Audio thread (48 kHz, 64-frame blocks, % of the block time)
+
+| Case | Measured | Target | |
 |---|---|---|---|
-| Idle: mean (only the pass-through bookkeeping) | 0.004 % | < 0.05 % | reached |
-| Record / Preview: mean | 0.456 % | < 2 % | reached |
-| Record / Preview: peak (best of 3 trials) | 1.716 % | < 10 % | reached |
+| Idle (pass-through), mean | 0.020 % | < 5 % | reached |
+| Idle (pass-through), peak | 1.975 % | < 25 % | reached |
+| Recording, mean | 0.022 % | < 5 % | reached |
+| Recording, peak | 1.094 % | < 25 % | reached |
+| Playing song + notes while they stream in, mean | 0.023 % | < 5 % | reached |
+| Playing song + notes while they stream in, peak | 0.550 % | < 25 % | reached |
+| Playing song + all notes (5 instruments), mean | 0.282 % | < 5 % | reached |
+| Playing song + all notes (5 instruments), peak | 1.375 % | < 25 % | reached |
 
-## Analysis worker (60 s recording at 48 kHz)
+## Editor (1280 x 800, the demo song with 5 instruments, playing)
 
-- live spectrogram + live HPSS: 2809 frames (2805 with the harmonic part, delay 4 frames = 85 ms), busy time 0.0017 s per audio second, slowest 50 ms chunk 0.17 ms
-- live pitch lines (multi-resolution peaks + tracking): 2797 frames, busy time 0.0028 s per audio second
-- pitch lines of the final analysis on their own: 0.20 s for 60 s of audio (2848 tracks, tuning +0.4 ct)
-- final analysis after Stop (spectrogram, HPSS, peaks, key, stored audio, pitch lines): 0.67 s for 60 s of audio, real-time factor 0.0111
-- Quick Grab on its own thread: 0.02 s for 60 s of audio (progress reported up to 87 %; the UI thread stays free)
-
-| Target | measured | limit | |
+| Case | Measured | Target | |
 |---|---|---|---|
-| Live analysis (spectrogram + live HPSS): real-time factor | 0.002  | < 0.1  | reached |
-| Live pitch lines: real-time factor | 0.003  | < 0.1  | reached |
-| Final analysis: real-time factor | 0.011  | < 0.1  | reached |
-| Quick Grab: real-time factor | 0.000  | < 0.1  | reached |
-
-## Editor (1280 x 720, 120 s recording)
-
-- frame with a cold tile cache (first draw): 18.81 ms; scrolling a cached map (whole window, median of 60): 2.31 ms, map draw only 0.23 ms; after a Gain / Range change (all visible tiles re-rendered): 5.89 ms
-- one 128 px glow tile (2x, band 685 pt high): 0.288 ms
-- one 128 px spectrum tile (2x, 1275 pt high, drums and overtones dimmed): 0.372 ms
-- one idle refresh tick: 0.005 ms CPU -> 0.003 % of a core at 5 Hz (the timer is off while the window is hidden)
-- while recording 10 s (refresh + whole-window draw of a growing map every 0.5 s): median 2.53 ms, slowest 7.65 ms (the first frame after Record, when every tile is cold)
-
-| Target | measured | limit | |
-|---|---|---|---|
-| Frame time, 1280x720 with 120 s recording (cached tiles) | 2.306 ms | < 8 ms | reached |
-| Frame time while recording (median) | 2.534 ms | < 8 ms | reached |
-| Editor idle CPU | 0.003 % | < 1 % | reached |
+| Full frame (median) | 4.336 ms | < 16 ms | reached |
 
 All targets reached.

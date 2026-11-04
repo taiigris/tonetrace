@@ -2,9 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <mutex>
 
-#include "analysis/ml/Resampler.h"
 
 namespace ttr {
 
@@ -12,8 +12,8 @@ namespace {
 
 constexpr double kSecondsPerMinute = 60.0;
 constexpr double kFallbackBpm = 120.0;
-constexpr double kDrumBeatShare = 0.25;    // drum hits last a 1/16 note
-constexpr double kMinNoteSec = 0.01;       // the model's shortest note
+constexpr double kDrumBeatShare = 0.25;  // drum hits last a 1/16 note
+constexpr double kMinNoteSec = 0.01;     // the model's shortest note
 
 struct Registry {
     std::mutex mutex;      // guards the fields
@@ -34,13 +34,8 @@ double drumLength(double bpm) {
     return kSecondsPerMinute / usable * kDrumBeatShare;
 }
 
-// Start of the next hit of the same drum after `index` (or infinity).
-double nextHitOf(const std::vector<TranscribedNote>& notes, size_t index) {
-    const TranscribedNote& self = notes[index];
-    double next = INFINITY;
-    for (size_t k = 0; k < notes.size(); ++k)
-        if (k != index && notes[k].isDrum && notes[k].pitch == self.pitch && notes[k].onset > self.onset) next = std::min(next, notes[k].onset);
-    return next;
+bool usable(const TranscribedNote& t) {
+    return t.pitch >= kMinNote && t.pitch <= kMaxNote && std::isfinite(t.onset) && std::isfinite(t.offset);
 }
 
 }  // namespace
@@ -103,63 +98,55 @@ std::string prefetchTranscriber() {
 
 std::vector<NoteEvent> muscriptorNotes(const std::vector<TranscribedNote>& notes, double bpm) {
     const double drum = drumLength(bpm);
+    // Next hit of every drum: the hits per drum sorted by onset, then a binary search (O(n log n) for the whole song).
+    std::map<int, std::vector<double>> hits;
+    for (const TranscribedNote& t : notes)
+        if (t.isDrum && usable(t)) hits[t.pitch].push_back(t.onset);
+    for (auto& entry : hits) std::sort(entry.second.begin(), entry.second.end());
+    auto nextHit = [&hits](const TranscribedNote& t) {
+        const std::vector<double>& times = hits[t.pitch];
+        const auto it = std::upper_bound(times.begin(), times.end(), t.onset);
+        return it == times.end() ? INFINITY : *it;
+    };
     std::vector<NoteEvent> out;
     out.reserve(notes.size());
-    for (size_t i = 0; i < notes.size(); ++i) {
-        const TranscribedNote& t = notes[i];
-        if (t.pitch < kMinNote || t.pitch > kMaxNote || !std::isfinite(t.onset) || !std::isfinite(t.offset)) continue;
+    for (const TranscribedNote& t : notes) {
+        if (!usable(t)) continue;
         NoteEvent n;
         n.pitch = t.pitch;
         n.startSec = std::max(0.0, t.onset);
-        const double end = t.isDrum ? std::min(n.startSec + drum, nextHitOf(notes, i)) : t.offset;
+        const double end = t.isDrum ? std::min(n.startSec + drum, nextHit(t)) : t.offset;
         n.endSec = std::max(end, n.startSec + kMinNoteSec);
-        n.strength = 1.0f;
-        n.selected = false;
         n.program = t.isDrum ? kDrumProgram : (t.program >= 0 && t.program < kDrumProgram ? t.program : kNoProgram);
         out.push_back(n);
     }
-    std::sort(out.begin(), out.end(), [](const NoteEvent& a, const NoteEvent& b) { return a.startSec != b.startSec ? a.startSec < b.startSec : a.pitch < b.pitch; });
+    std::sort(out.begin(), out.end(), [](const NoteEvent& a, const NoteEvent& b) {
+        if (a.startSec != b.startSec) return a.startSec < b.startSec;
+        return a.pitch != b.pitch ? a.pitch < b.pitch : a.program < b.program;
+    });
     return out;
 }
 
-namespace {
-
-// Runs the model on 16 kHz audio (built only once the model is there, so a missing model costs no resampling).
-MuScriptorGrab transcribe16k(const std::function<std::vector<float>()>& audio16k, double bpm, TaskControl* control) {
-    MuScriptorGrab result;
-    const std::shared_ptr<NoteTranscriber> transcriber = noteTranscriber(&result.reason);
-    if (!transcriber) return result;
+bool transcribeSong(const std::vector<float>& audio16k, double bpm, TaskControl* control, const SongProgress& onProgress, std::string* reason) {
+    std::string why;
+    if (audio16k.empty()) why = "no audio";
+    const std::shared_ptr<NoteTranscriber> transcriber = why.empty() ? noteTranscriber(&why) : nullptr;
+    if (!transcriber) {
+        if (reason) *reason = why;
+        return false;
+    }
     std::vector<TranscribedNote> raw;
-    if (!transcriber->transcribe(audio16k(), &raw, control, &result.reason)) {
-        if (control && control->cancelled()) result.reason = "cancelled";
-        return result;
+    const ChunkCallback onChunk = [&](const TranscriptionChunk& chunk) {
+        raw.insert(raw.end(), chunk.newNotes.begin(), chunk.newNotes.end());
+        if (control) control->report(chunk.progress);
+        if (onProgress) onProgress(muscriptorNotes(raw, bpm), chunk.finalizedSec, chunk.progress);
+    };
+    if (!transcriber->transcribe(audio16k, onChunk, control, &why)) {
+        if (reason) *reason = control && control->cancelled() ? "cancelled" : why;
+        return false;
     }
-    result.notes = muscriptorNotes(raw, bpm);
-    result.ok = true;
     if (control) control->report(1.0f);
-    return result;
-}
-
-}  // namespace
-
-MuScriptorGrab muscriptorGrabSnapshot(const Snapshot& snapshot, TaskControl* control) {
-    if (!snapshot.audio || snapshot.audio->samples.empty()) {
-        MuScriptorGrab result;
-        result.reason = "the recording audio is not stored (longer than 60 s)";
-        return result;
-    }
-    const AudioClip& clip = *snapshot.audio;
-    return transcribe16k([&clip] { return resampleInt16(clip.samples.data(), clip.samples.size(), clip.sampleRate, kMuScriptorRate); },
-                         snapshot.bpm, control);
-}
-
-MuScriptorGrab muscriptorTranscribe(const std::vector<float>& mono, double sampleRate, double bpm, TaskControl* control) {
-    if (mono.empty() || !(sampleRate > 0.0)) {
-        MuScriptorGrab result;
-        result.reason = "no audio";
-        return result;
-    }
-    return transcribe16k([&] { return resampleMono(mono.data(), mono.size(), sampleRate, kMuScriptorRate); }, bpm, control);
+    return true;
 }
 
 }  // namespace ttr

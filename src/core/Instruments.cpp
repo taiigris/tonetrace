@@ -66,10 +66,32 @@ bool hasInstruments(const std::vector<NoteEvent>& notes) {
     return std::any_of(notes.begin(), notes.end(), [](const NoteEvent& n) { return n.program != kNoProgram; });
 }
 
-std::vector<NoteEvent> withInstrumentSelected(const std::vector<NoteEvent>& notes, int program) {
-    std::vector<NoteEvent> out = notes;
-    for (NoteEvent& n : out) n.selected = n.program == program;
-    return out;
+std::string instrumentAbbreviation(int program) {
+    static const struct { int program; const char* abbreviation; } kChips[] = {
+        {0, "PNO"},  {2, "EPN"},  {8, "CPR"},  {16, "ORG"}, {24, "AGT"}, {26, "GTR"}, {29, "DGT"}, {32, "ABS"}, {33, "BAS"},
+        {40, "VLN"}, {41, "VLA"}, {42, "VLC"}, {43, "CBS"}, {46, "HRP"}, {47, "TMP"}, {48, "STR"}, {50, "SST"}, {52, "VOX"},
+        {55, "OHT"}, {56, "TPT"}, {57, "TBN"}, {58, "TBA"}, {60, "HRN"}, {61, "BRS"}, {64, "ASX"}, {66, "TSX"}, {67, "BSX"},
+        {68, "OBO"}, {69, "EHN"}, {70, "BSN"}, {71, "CLR"}, {72, "FLT"}, {80, "LED"}, {88, "PAD"}, {kDrumProgram, "DRM"},
+    };
+    for (const auto& c : kChips)
+        if (c.program == program) return c.abbreviation;
+    return program == kNoProgram ? "---" : std::to_string(program);
+}
+
+bool pitchRangeOf(const std::vector<NoteEvent>& notes, int program, int* lowest, int* highest) {
+    bool found = false;
+    for (const NoteEvent& n : notes) {
+        if (n.program != program) continue;
+        *lowest = found ? std::min(*lowest, n.pitch) : n.pitch;
+        *highest = found ? std::max(*highest, n.pitch) : n.pitch;
+        found = true;
+    }
+    return found;
+}
+
+std::string noteName(int pitch) {
+    static const char* kNames[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    return std::string(kNames[((pitch % 12) + 12) % 12]) + std::to_string(pitch / 12 - 1);
 }
 
 }  // namespace ttr

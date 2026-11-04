@@ -1,83 +1,35 @@
-// Platform-neutral processor: capture, preview, analysis worker, note model and state.
+// Platform-neutral processor of Tonetrace 5 (NeuralNote-style): load a song or record one, transcribe every instrument
+// with MuScriptor (notes stream in chunk by chunk), play the original and the notes, export one MIDI track per instrument.
 // Audio-thread methods never allocate or lock. Everything else is for UI/worker/host-control threads.
 #pragma once
+#include <array>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
-#include "analysis/LiveLines.h"
-#include "analysis/LiveSpectrum.h"
-#include "analysis/QuickGrab.h"
 #include "analysis/TaskControl.h"
 #include "analysis/WavePeaks.h"
 #include "capture/CaptureBuffer.h"
 #include "core/AudioEvents.h"
 #include "core/Diagnostics.h"
-#include "core/NoteEdit.h"
-#include "core/NoteHistory.h"
+#include "core/Mixer.h"
 #include "core/Params.h"
-#include "core/Snapshot.h"
 #include "core/Types.h"
-#include "preview/NoteTable.h"
-#include "preview/PreviewSynth.h"
-#include "state/UiSettings.h"
+#include "preview/NoteSynth.h"
+#include "preview/PlayTable.h"
 
 namespace ttr {
 
-enum class KernelStatus : int { Idle = 0, Recording = 1, Analysing = 2 };
-
-// What the note map and the waveform lane draw: the live buffers while recording, the snapshot otherwise.
-struct MapView {
-    SnapshotPtr snapshot;             // keeps the recording alive; may be null
-    std::shared_ptr<const void> hold[3];  // keeps the live buffers alive while a frame is drawn
-    const float* raw = nullptr;       // frames * kNumNotes
-    const float* harmonic = nullptr;  // same layout; may be null (live: lags behind raw by a few frames)
-    int harmonicFrames = 0;           // frames of `harmonic` that are finished
-    uint64_t generation = 0;          // changes whenever the buffers hold a different recording
-    int frames = 0;
-    double hopSec = 0.0;
-    float peak = 0.0f;                // loudest value so far (display reference)
-    const float* wave = nullptr;      // 2 * waveCount (min, max)
-    int waveCount = 0;
-    double lengthSec = 0.0;
-    // Pitch lines: the live buffers while recording, the finished lines otherwise (null / 0 frames when not available)
-    const LinePoint* linePoints = nullptr;  // lineFrames * kLineSlots
-    const uint8_t* lineCounts = nullptr;
-    int lineFrames = 0;
-    float linePeak = 0.0f;
-    std::shared_ptr<const void> lineHold;
-    const uint8_t* fine = nullptr;          // lineFrames * kFineBins: the whole spectrum on the fine pitch grid (null when not available)
-    std::shared_ptr<const void> fineHold;   // keeps the live fine buffer alive while a frame is drawn
-    const PitchLines* lines = nullptr;      // finished lines (same object as snapshot->lines)
+// The waveform of a running recording (min/max pairs, mono), kept alive while the UI draws it.
+struct RecordingView {
+    const float* minMax = nullptr;
+    int count = 0;  // pairs
+    std::shared_ptr<const void> hold;
 };
-
-// View settings of the thin-line map that live in the editor state (UiSettings), not in the host parameters.
-struct LineView {
-    bool fundamentals = false;    // dim overtones
-    bool alignToSample = true;    // shift the semitone grid by the detected tuning
-    float trimCents = 0.0f;       // manual correction, -50..+50
-    bool isSpectrum = true;       // View: the full spectrogram (default) instead of the thin lines
-    bool grabOnClick = false;     // a click exactly on a strong line grabs it as a note
-    bool samplerOnDrag = false;   // a successful Drag MIDI also asks the Live bridge for a sampler track
-    GrabEngine engine = GrabEngine::Classic;  // 4.5: Quick Grab engine (Neural/MuScriptor fall back to Classic without a model)
-};
-constexpr float kMaxTrimCents = 50.0f;
-
-// The editor state (UiSettings) and the kernel's line view carry the same settings.
-inline LineView lineViewOf(const UiSettings& s) {
-    return {s.fundamentals, s.alignToSample, s.tuningTrim, s.isSpectrum, s.grabOnClick, s.samplerOnDrag, grabEngineFromIndex(s.grabEngine)};
-}
-inline void storeLineView(const LineView& v, UiSettings* s) {
-    s->fundamentals = v.fundamentals;
-    s->alignToSample = v.alignToSample;
-    s->tuningTrim = v.trimCents;
-    s->isSpectrum = v.isSpectrum;
-    s->grabOnClick = v.grabOnClick;
-    s->samplerOnDrag = v.samplerOnDrag;
-    s->grabEngine = static_cast<int>(v.engine);
-}
 
 class TonetraceKernel {
 public:
@@ -87,11 +39,9 @@ public:
     TonetraceKernel& operator=(const TonetraceKernel&) = delete;
 
     // ---- lifecycle (non-real-time) ----
-    void prepare(double sampleRate, int maxFrames);  // allocates, starts worker
-    void deactivate();                               // stops worker, keeps data readable
-    void resetAudioState();                          // audio stopped: clear voices / recording flag state
-    // VST3 IAudioProcessor::setProcessing: false ends a running recording (analysis starts) and silences the preview.
-    void setProcessing(bool isProcessing);
+    void prepare(double sampleRate, int maxFrames);  // allocates, starts the worker
+    void deactivate();                               // stops the worker and any running job; data stays readable
+    void setProcessing(bool isProcessing);           // false ends a running recording (it gets transcribed)
     void setOffline(bool isOffline);
     void setHostName(const std::string& name);
     void setChannels(int channels);
@@ -105,57 +55,40 @@ public:
     float param(int id) const;
     void setParam(int id, float value);  // clamps; atomic store only, safe on any thread
     ParamValues allParams() const;
-    FilterSettings filterSettings() const;
 
-    // ---- document model (UI thread) ----
-    SnapshotPtr snapshot() const;
-    MapView mapView() const;
-    KernelStatus status() const { return KernelStatus(status_.load()); }
+    // ---- document ----
+    DocumentPtr document() const;
+    // Loads a song file in the background: the audio is playable as soon as it is decoded, the notes follow chunk by
+    // chunk. Replaces the current document (a running job is cancelled). False for unsupported files or while recording.
+    bool loadSong(const std::string& path);
+    void cancelTranscription();  // returns at once; the document keeps the notes found so far
+    bool isWorking() const { return jobRunning_.load(); }
+    void clearDocument();        // nothing loaded (the drop zone shows again)
+    bool isRecording() const { return wasRecordingFlag_.load(); }
     double recordedSeconds() const;
-    double hostBpm() const { return hostBpm_.load(); }
-    TimeGrid timeGrid() const;  // recording tempo (host tempo before the first recording) and the Snap parameter
-    // Notes: setNotes publishes without touching the history (live drags, selection); editNotes records an undo step.
-    void setNotes(std::vector<NoteEvent> notes);
-    void editNotes(std::vector<NoteEvent> notes);
-    void checkpoint();  // undo step for the current notes (call once before the first setNotes of a gesture)
-    bool undo();
-    bool redo();
-    bool canUndo() const;
-    bool canRedo() const;
-    // Pitch-line view settings (any thread) and the grid offset they result in: detected tuning (when aligned and
-    // reliable) plus the manual trim, in cent.
-    LineView lineView() const;
-    void setLineView(const LineView& view);
-    double tuningOffsetCents() const;
-    double detectedTuningCents(bool* isReliable = nullptr) const;
-    int quickGrab();  // adds notes from the strongest lines (Quick Grab parameter); returns how many were new
-    // Quick Grab on a background thread: returns false when one is already running or there is nothing to analyse.
-    // The result is merged as one undo step and announced as a notice.
-    bool startQuickGrab();
-    void cancelQuickGrab();          // waits for the task to end
-    void requestCancelQuickGrab();   // asks it to stop and returns at once (UI thread)
-    // 4.7: loads a whole song file instead of a recording (a new document, undoable), then transcribes every instrument
-    // with MuScriptor (Classic without the model). Runs as the Quick Grab task: same progress, same Cancel.
-    // False when something else runs or the file type is not supported.
-    bool startSongImport(const std::string& path);
-    bool songImportRunning() const { return importRunning_.load(); }
-    enum class SongStage : int { Loading = 0, Analysing = 1, Transcribing = 2 };
-    SongStage songImportStage() const { return SongStage(importStage_.load()); }
-    bool quickGrabRunning() const { return grabRunning_.load(); }
-    float quickGrabProgress() const { return grabControl_.progress.load(); }
-    void resetAll();  // recording, notes and history; undoable (the whole document is one history step)
+    RecordingView recordingView() const;
 
-    // ---- preview ----
-    bool previewing() const { return param(kParamPreview) >= 0.5f; }
-    double playheadSec() const { return playhead_.load(); }
-    void setPreviewStart(double sec) { previewStart_.store(sec); }
-    double previewStart() const { return previewStart_.load(); }
-    void setPreviewLoop(double startSec, double endSec);  // endSec <= startSec clears the loop
-    bool previewLoop(double* startSec, double* endSec) const;
-    void audition(int pitch);
-    // "Sync to host": while the host transport runs the preview follows the song position (relative to the recording start).
-    bool syncToHost() const { return syncToHost_.load(); }
-    void setSyncToHost(bool on) { syncToHost_.store(on); }
+    // ---- transport (UI thread) ----
+    void play();
+    void pause();
+    void togglePlay();
+    bool isPlaying() const { return playing_.load(); }
+    void seek(double sec);
+    double positionSec() const { return positionSec_.load(); }
+
+    // ---- mixer ----
+    MixerState mixer() const;
+    void setInstrumentMix(int program, const InstrumentMix& mix);
+    float instrumentLevel(int program) const;  // peak of the last block, 0..1+
+    float masterLevel() const { return masterLevel_.load(std::memory_order_relaxed); }
+
+    // ---- MIDI export ----
+    double hostBpm() const { return hostBpm_.load(); }
+    double exportBpm() const;           // the user's value, or the host tempo until one is set
+    void setExportBpm(double bpm);      // clamped to 20..400
+    // The notes of the audible instruments (all when `allInstruments`), one track per instrument.
+    std::vector<uint8_t> buildMidi(bool allInstruments = false) const;
+    std::string midiFileName() const;
 
     // ---- state ----
     std::vector<uint8_t> saveState() const;
@@ -163,81 +96,87 @@ public:
 
     // ---- diagnostics ----
     Diagnostics& diagnostics() { return diagnostics_; }
-    DiagnosticsSnapshot diagnosticsSnapshot() const;  // includes recording length and capture memory
+    DiagnosticsSnapshot diagnosticsSnapshot() const;
     void notice(const std::string& text, NoticeLevel level = NoticeLevel::Warning) { diagnostics_.pushNotice(text, level); }
 
 private:
+    // documents (KernelJobs.cpp)
+    void publish(DocumentPtr doc);
+    bool updateDocument(uint64_t id, const std::function<void(Document&)>& change);  // false when another document is current
+    void republishPlayTable();
+    void setPlayAudio(std::shared_ptr<const SongAudio> audio);
+    void collectRetiredAudio(bool force);
+    void startJob(std::function<void(TaskControl&)> job);
+    void stopJob();
+    void runLoadSong(TaskControl& control, uint64_t id, const std::string& path);
+    void runTranscription(TaskControl& control, uint64_t id, std::vector<float> audio16k);
+    bool waitForModel(TaskControl& control, uint64_t id, std::string* reason);
+    void runReloadAudio(TaskControl& control, uint64_t id, const std::string& path);
+    uint64_t nextDocumentId() { return ++documentIds_; }
+    // recording (KernelWorker.cpp)
     void workerLoop();
-    void runAnalysis();
-    void startLinesJob();  // pitch lines of a restored recording, on a background thread
-    void stopLinesJob();
-    void advanceLive();
-    void publishLocked(SnapshotPtr snap);  // requires mutateMutex_
-    void publishNotesLocked(std::vector<NoteEvent> notes);
-    void republishPreviewTable(const Snapshot* snap);
-    void restoreCaptureFromSnapshot();
-    bool previewActive() const;
-    bool renderPreview(int frames);
-    void trackBlock(int frames, int numChannels);
-    void playBlock(int frames, bool fadeOutOnly);
     void drainAudioEvents();
-    bool applyHistoryLocked(bool isUndo);  // requires mutateMutex_
-    int mergeGrabbed(const SnapshotPtr& base, std::vector<NoteEvent> grabbed);  // adds notes as one undo step; returns how many
-    void reportFallback(const GrabOutcome& outcome, GrabEngine requested);  // Neural/MuScriptor asked for, Classic ran: log + notice
-    void runSongImport(const std::string& path, double bpm, uint64_t recordSeq);  // the import task (KernelSong.cpp)
-    SnapshotPtr publishSong(const Recording& recording, uint64_t recordSeq);      // the song as a new document, or null
-    std::vector<NoteEvent> transcribeSong(const SnapshotPtr& song, const std::vector<float>& mono, double rate);
-    void mixPreview(float* const* channels, int numChannels, int frames);
-    double syncedPosition() const;
+    void finishRecording();
+    // audio (KernelAudio.cpp)
+    void recordBlock(float* const* channels, int numChannels, int frames);
+    void playBlock(float* const* channels, int numChannels, int frames);
+    void scheduleNotes(const PlayTable::View& table, double fromSec, int frames, bool startSounding);
+    void updateMeters(float* const* channels, int numChannels, int frames);
 
     std::array<std::atomic<float>, kNumParams> params_;
-    std::atomic<int> status_{0};
-    std::atomic<double> playhead_{0.0}, hostBpm_{kDefaultBpm}, hostBeat_{0.0};
-    std::atomic<double> previewStart_{0.0}, loopStart_{0.0}, loopEnd_{0.0};
-    std::atomic<uint64_t> recordSeq_{0}, analysisSeq_{0};
-    std::atomic<bool> workerRun_{false};
-    std::atomic<bool> syncToHost_{false}, hostPlaying_{false}, grabRunning_{false}, importRunning_{false};
-    std::atomic<int> importStage_{0};
-    std::atomic<double> docBpm_{kDefaultBpm}, docStartPpq_{0.0};
-    std::atomic<uint64_t> generation_{0};
     const int instanceId_;
     Diagnostics diagnostics_;
     AudioEventQueue events_;
-    std::mutex eventMutex_;  // serialises the consumers of events_ (worker, setProcessing, deactivate)
-    TaskControl grabControl_;
-    std::thread grabThread_;
-    double nsPerTick_ = 1.0;
-    int lastBlock_ = 0, maxSeenBlock_ = 0;
-    bool isOffline_ = false, wasHostPlaying_ = false;
+    std::mutex eventMutex_;
+    std::atomic<double> hostBpm_{kDefaultBpm}, exportBpm_{0.0};
+    std::atomic<bool> isOffline_{false};
 
+    // document
+    mutable std::mutex docMutex_;
+    DocumentPtr doc_;
+    MixerState mixer_;  // guarded by docMutex_
+    std::atomic<uint64_t> documentIds_{0};
+    std::atomic<double> docLength_{0.0};
+
+    // background job (load, transcription)
+    std::thread jobThread_;
+    TaskControl jobControl_;
+    std::atomic<bool> jobRunning_{false};
+    std::atomic<uint64_t> jobGeneration_{0};  // a job only runs (and clears jobRunning_) while it is the latest
+    std::mutex jobMutex_;
+
+    // song audio handed to the audio thread: raw pointer + owners retired only after the audio thread moved on
+    std::atomic<const SongAudio*> playAudio_{nullptr};
+    std::shared_ptr<const SongAudio> playAudioOwner_;
+    struct Retired { std::shared_ptr<const SongAudio> audio; uint64_t epoch; };
+    std::vector<Retired> retired_;
+    std::mutex audioMutex_;
+    std::atomic<uint64_t> audioEpoch_{0};
+
+    // transport + playback (audio thread state below the atomics)
+    std::atomic<bool> playing_{false};
+    std::atomic<double> positionSec_{0.0}, seekRequest_{-1.0};
+    PlayTable table_;
+    NoteSynth synth_;
+    bool wasPlaying_ = false;
+    std::vector<float> synthBuf_;
     double sampleRate_ = 44100.0;
     int maxFrames_ = 0;
-    bool wasRecording_ = false, wasPreviewing_ = false, captureFull_ = false, tailPending_ = false, gainsValid_ = false;
-    long fadeInDone_ = 0, fadeOutDone_ = 0;
-    float sampleGain_ = 0.0f, noteGain_ = 0.0f, dryGain_ = 1.0f;  // smoothed mix gains (audio thread)
-    double recBpm_ = kDefaultBpm, recBeat_ = 0.0;
-    long playSample_ = 0;
-    std::vector<float> mono_, synthBuf_, sampleBuf_;
+    std::array<std::atomic<float>, NoteSynth::kLevelSlots> levels_{};
+    std::atomic<float> masterLevel_{0.0f};
 
-    CaptureBuffer capture_;
-    LiveSpectrum live_;
-    PeakBuilder livePeaks_;
-    LiveLines liveLines_;
-    std::atomic<bool> lineAlign_{true}, lineFundamentals_{false}, lineSpectrum_{true}, lineGrabOnClick_{false}, lineSamplerOnDrag_{false};
-    std::atomic<int> lineEngine_{0};
-    std::atomic<float> lineTrim_{0.0f};
-    std::thread linesThread_;
-    TaskControl linesControl_;
-    uint64_t liveSeq_ = 0;  // worker thread only
-    PreviewSynth synth_;
-    NoteTable table_;
+    // recording
+    CaptureBuffer captureL_, captureR_;
+    PeakBuilder recordPeaks_;
+    mutable std::mutex recordMutex_;  // recordPeaks_ buffer (re)allocation vs. the UI reading it
+    std::atomic<bool> wasRecordingFlag_{false};
+    std::atomic<uint64_t> recordStops_{0};
+    bool wasRecording_ = false;
+    bool firstBlock_ = true;
+    double nsPerTick_ = 1.0;
 
-    mutable std::mutex liveMutex_;  // live buffers: reallocated by prepare(), read by the UI in mapView() (never taken on the audio thread)
-    mutable std::mutex snapMutex_;  // never taken on the audio thread
-    SnapshotPtr snapshot_;
-    NoteHistory history_;           // guarded by mutateMutex_
-    mutable std::mutex mutateMutex_;  // serialises read-modify-publish of the snapshot (UI + worker)
     std::thread worker_;
+    std::atomic<bool> workerRun_{false};
 };
 
 }  // namespace ttr

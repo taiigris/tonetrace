@@ -1,30 +1,30 @@
-// Binary (de)serialisation of the plugin state: parameters, drawn notes, spectrogram, waveform peaks and (short) audio.
+// Binary (de)serialisation of the plug-in state (Tonetrace 5): parameters, export tempo, instrument mix and the
+// document (song name and path, notes with their instrument, the audio of a recording).
 #pragma once
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
+#include "core/Mixer.h"
 #include "core/Params.h"
 #include "core/Types.h"
 
 namespace ttr {
 
-constexpr size_t kMaxSpectrogramStateBytes = 4u * 1024u * 1024u;    // quantised spectrogram
-
-// v4: size + CRC32 header, "sync to host" flag. v5 (4.7): instrument per note and the song file name. v3/v4 still load.
-constexpr uint32_t kStateFormatVersion = 5;
+// v6 (5.0): new parameter set, mixer, document. States of Tonetrace 4 (v3-v5) are refused with a clear reason.
+constexpr uint32_t kStateFormatVersion = 6;
+constexpr size_t kMaxStateAudioSamples = 4u * 1024u * 1024u;  // a recording is stored as mono 22.05 kHz (about 190 s)
 
 struct DecodedState {
     ParamValues params = defaultParams();
-    bool syncToHost = false;
     uint32_t formatVersion = 0;
-    SnapshotPtr snapshot;  // may be null
+    double exportBpm = 0.0;  // 0 = follow the host
+    MixerState mixer;
+    DocumentPtr document;  // may be null
 };
 
-std::vector<uint8_t> encodeState(const ParamValues& params, const Snapshot* snapshot, bool syncToHost = false);
-// The same in an older layout (4 or 5; anything else writes the current one). Tests use it to build v4 / v3 states.
-std::vector<uint8_t> encodeStateAs(const ParamValues& params, const Snapshot* snapshot, bool syncToHost, uint32_t version);
+std::vector<uint8_t> encodeState(const ParamValues& params, const Document* document, const MixerState& mixer, double exportBpm);
 // Never throws or crashes on arbitrary input: returns false and, when `reason` is given, a readable cause.
 bool decodeState(const uint8_t* data, size_t size, DecodedState* out, std::string* reason = nullptr);
 // Only the parameter block (cheap; used by the VST3 controller to sync its parameters).

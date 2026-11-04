@@ -1,4 +1,5 @@
-// Root view of the Tonetrace plugin window: header, waveform lane, note map, piano keys and the side panel.
+// Root view of the Tonetrace plug-in window (NeuralNote-style): transport bar, instrument sidebar, song header,
+// waveform lane, piano roll and status bar.
 #pragma once
 #import <Cocoa/Cocoa.h>
 
@@ -6,8 +7,8 @@
 
 #include "ui/TTRHostBridge.h"
 
-extern const NSSize kTTRDefaultSize;  // 1280 x 720
-extern const NSSize kTTRMinimumSize;  // 1024 x 600
+extern const NSSize kTTRDefaultSize;  // 1280 x 800
+extern const NSSize kTTRMinimumSize;  // 1024 x 640
 
 @interface TTRMainView_v1 : NSView
 - (instancetype)initWithBridge:(std::shared_ptr<ttr::TTRHostBridge>)bridge;

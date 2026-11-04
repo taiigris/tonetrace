@@ -1,4 +1,4 @@
-// TonetraceKernel: lifecycle, parameters, host state and diagnostics (non-audio threads).
+// TonetraceKernel: lifecycle, parameters, transport, mixer and MIDI export (non-audio threads).
 #include "core/TonetraceKernel.h"
 
 #include <mach/mach_time.h>
@@ -9,17 +9,19 @@
 
 #include "core/Logger.h"
 #include "core/Version.h"
+#include "midi/ExportPlanner.h"
 
 namespace ttr {
 
 namespace {
-constexpr double kMinLoopSec = 0.05;
 constexpr double kBytesPerMegabyte = 1024.0 * 1024.0;
+constexpr double kMinBpm = 20.0, kMaxBpm = 400.0;
 }  // namespace
 
 TonetraceKernel::TonetraceKernel() : instanceId_(nextInstanceId()) {
     const ParamValues defaults = defaultParams();
     for (int i = 0; i < kNumParams; ++i) params_[i].store(defaults[i]);
+    for (auto& l : levels_) l.store(0.0f);
     mach_timebase_info_data_t base{};
     mach_timebase_info(&base);
     nsPerTick_ = base.denom ? double(base.numer) / double(base.denom) : 1.0;
@@ -28,26 +30,20 @@ TonetraceKernel::TonetraceKernel() : instanceId_(nextInstanceId()) {
 
 TonetraceKernel::~TonetraceKernel() {
     deactivate();
+    stopJob();
     logInfo(instanceId_, "destroyed");
 }
 
 void TonetraceKernel::prepare(double sampleRate, int maxFrames) {
     deactivate();
-    const double newRate = sampleRate > 0 ? sampleRate : 44100.0;
-    const bool rateChangedWhileRecording = status() == KernelStatus::Recording && newRate != sampleRate_;
-    sampleRate_ = newRate;
+    sampleRate_ = sampleRate > 0 ? sampleRate : 44100.0;
     maxFrames_ = std::max(1, maxFrames);
     try {
-        mono_.assign(size_t(maxFrames_), 0.0f);
         synthBuf_.assign(size_t(maxFrames_), 0.0f);
-        sampleBuf_.assign(size_t(maxFrames_), 0.0f);
-        capture_.prepare(sampleRate_, kMaxRecordSeconds);
-        {
-            std::lock_guard<std::mutex> liveLock(liveMutex_);  // the editor may be drawing from these buffers
-            live_.prepare(sampleRate_, kMaxRecordSeconds);
-            livePeaks_.prepare(sampleRate_, kMaxRecordSeconds);
-            liveLines_.prepare(live_.decimatedRate(), live_.maxFrames());
-        }
+        captureL_.prepare(sampleRate_, kMaxRecordSeconds);
+        captureR_.prepare(sampleRate_, kMaxRecordSeconds);
+        std::lock_guard<std::mutex> lock(recordMutex_);
+        recordPeaks_.prepare(sampleRate_, kMaxRecordSeconds);
     } catch (const std::bad_alloc&) {
         logError(instanceId_, "out of memory while preparing %.0f Hz / %d frames", sampleRate_, maxFrames_);
         notice("Not enough memory for the recording buffers - recording is unavailable", NoticeLevel::Error);
@@ -55,61 +51,40 @@ void TonetraceKernel::prepare(double sampleRate, int maxFrames) {
         return;
     }
     synth_.prepare(sampleRate_);
-    resetAudioState();
-    if (rateChangedWhileRecording) {
-        setParam(kParamRecord, 0.0f);
-        notice("Sample rate changed during the recording - the recording was discarded");
-        logWarn(instanceId_, "sample rate changed to %.0f Hz while recording: recording discarded", sampleRate_);
-    }
-    restoreCaptureFromSnapshot();
+    wasRecording_ = wasPlaying_ = false;
+    firstBlock_ = true;
     diagnostics_.setLayout(sampleRate_, maxFrames_, diagnostics_.snapshot().channels);
     logInfo(instanceId_, "prepared: %.0f Hz, max block %d", sampleRate_, maxFrames_);
     workerRun_.store(true);
     worker_ = std::thread([this] { workerLoop(); });
-    startLinesJob();  // a state loaded before the plug-in was activated
 }
 
 void TonetraceKernel::deactivate() {
-    cancelQuickGrab();
-    stopLinesJob();
     workerRun_.store(false);
     if (worker_.joinable()) worker_.join();
     drainAudioEvents();
-}
-
-void TonetraceKernel::resetAudioState() {
-    synth_.allNotesOff();
-    wasRecording_ = wasPreviewing_ = captureFull_ = tailPending_ = wasHostPlaying_ = false;
-    playSample_ = 0;
-    fadeInDone_ = 0;
-    lastBlock_ = maxSeenBlock_ = 0;
-    playhead_.store(0.0);
-    if (status() == KernelStatus::Recording) status_.store(int(KernelStatus::Idle));
+    collectRetiredAudio(true);  // the audio thread does not run while deactivated
 }
 
 void TonetraceKernel::setProcessing(bool isProcessing) {
-    diagnostics_.setFlags(isOffline_, isProcessing);
+    diagnostics_.setFlags(isOffline_.load(), isProcessing);
     logInfo(instanceId_, "setProcessing(%s)", isProcessing ? "true" : "false");
     if (isProcessing) return;
-    synth_.allNotesOff();
-    wasPreviewing_ = tailPending_ = wasHostPlaying_ = false;
-    playSample_ = 0;
-    fadeInDone_ = 0;
-    playhead_.store(0.0);
-    if (wasRecording_) {  // the transport stopped: a running recording ends here and gets analysed
+    synth_.reset();
+    wasPlaying_ = false;
+    if (wasRecording_) {  // the transport stopped: a running recording ends here and gets transcribed
         wasRecording_ = false;
+        wasRecordingFlag_.store(false);
         params_[kParamRecord].store(0.0f);
-        analysisSeq_.fetch_add(1);
-        status_.store(int(KernelStatus::Analysing));
+        recordStops_.fetch_add(1);
         logInfo(instanceId_, "recording ended by setProcessing(false): %.2f s", recordedSeconds());
     }
     drainAudioEvents();
 }
 
 void TonetraceKernel::setOffline(bool isOffline) {
-    if (isOffline == isOffline_) return;
-    isOffline_ = isOffline;
-    diagnostics_.setFlags(isOffline_, diagnostics_.snapshot().isProcessing);
+    if (isOffline == isOffline_.exchange(isOffline)) return;
+    diagnostics_.setFlags(isOffline, diagnostics_.snapshot().isProcessing);
     logInfo(instanceId_, "process mode: %s", isOffline ? "offline" : "realtime");
 }
 
@@ -140,40 +115,89 @@ ParamValues TonetraceKernel::allParams() const {
     return v;
 }
 
-FilterSettings TonetraceKernel::filterSettings() const {
-    FilterSettings f;
-    f.hideDrums = param(kParamHideDrums) >= 0.5f;
-    return f;
+void TonetraceKernel::setHostTransport(double bpm, double /*beat*/, bool /*isPlaying*/) {
+    if (std::isfinite(bpm) && bpm >= kMinBpm && bpm <= kMaxBpm) hostBpm_.store(bpm, std::memory_order_relaxed);
 }
 
-void TonetraceKernel::setHostTransport(double bpm, double beat, bool isPlaying) {
-    if (std::isfinite(bpm) && bpm >= 20.0 && bpm <= 400.0) hostBpm_.store(bpm, std::memory_order_relaxed);
-    if (std::isfinite(beat)) hostBeat_.store(beat, std::memory_order_relaxed);
-    hostPlaying_.store(isPlaying, std::memory_order_relaxed);
+// ------------------------------------------------------------ transport
+
+void TonetraceKernel::play() {
+    if (docLength_.load() <= 0.0) return;
+    if (positionSec_.load() >= docLength_.load()) seek(0.0);
+    playing_.store(true);
 }
 
-void TonetraceKernel::setPreviewLoop(double startSec, double endSec) {
-    const bool valid = std::isfinite(startSec) && std::isfinite(endSec) && endSec - startSec >= kMinLoopSec;
-    loopStart_.store(valid ? std::max(0.0, startSec) : 0.0);
-    loopEnd_.store(valid ? endSec : 0.0);
+void TonetraceKernel::pause() { playing_.store(false); }
+
+void TonetraceKernel::togglePlay() {
+    if (playing_.load()) pause();
+    else play();
 }
 
-bool TonetraceKernel::previewLoop(double* startSec, double* endSec) const {
-    const double a = loopStart_.load(), b = loopEnd_.load();
-    if (startSec) *startSec = a;
-    if (endSec) *endSec = b;
-    return b - a >= kMinLoopSec;
+void TonetraceKernel::seek(double sec) {
+    const double clamped = std::clamp(std::isfinite(sec) ? sec : 0.0, 0.0, std::max(0.0, docLength_.load()));
+    positionSec_.store(clamped);
+    seekRequest_.store(clamped);
 }
 
-void TonetraceKernel::audition(int pitch) { table_.pushAudition(pitch); }
+// ------------------------------------------------------------ mixer
 
-double TonetraceKernel::recordedSeconds() const { return double(capture_.size()) / sampleRate_; }
+MixerState TonetraceKernel::mixer() const {
+    std::lock_guard<std::mutex> guard(docMutex_);
+    return mixer_;
+}
+
+void TonetraceKernel::setInstrumentMix(int program, const InstrumentMix& mix) {
+    {
+        std::lock_guard<std::mutex> guard(docMutex_);
+        mixer_ = mixer_.with(program, mix);
+    }
+    republishPlayTable();
+}
+
+float TonetraceKernel::instrumentLevel(int program) const {
+    const int slot = program + 1;
+    return slot >= 0 && slot < NoteSynth::kLevelSlots ? levels_[size_t(slot)].load(std::memory_order_relaxed) : 0.0f;
+}
+
+// ------------------------------------------------------------ export
+
+double TonetraceKernel::exportBpm() const {
+    const double user = exportBpm_.load();
+    return user > 0.0 ? user : hostBpm();
+}
+
+void TonetraceKernel::setExportBpm(double bpm) {
+    if (!std::isfinite(bpm)) return;
+    exportBpm_.store(std::clamp(bpm, kMinBpm, kMaxBpm));
+}
+
+std::vector<uint8_t> TonetraceKernel::buildMidi(bool allInstruments) const {
+    const DocumentPtr doc = document();
+    if (!doc) return {};
+    const std::vector<NoteEvent> notes = notesForExport(doc->notes, mixer(), allInstruments);
+    return ttr::buildMidi(notes, exportBpm(), songStem(doc->sourceName));
+}
+
+std::string TonetraceKernel::midiFileName() const {
+    const DocumentPtr doc = document();
+    return ttr::midiFileName(doc ? doc->sourceName : std::string(), exportBpm());
+}
+
+// ------------------------------------------------------------ recording view, diagnostics
+
+double TonetraceKernel::recordedSeconds() const { return double(captureL_.size()) / sampleRate_; }
+
+RecordingView TonetraceKernel::recordingView() const {
+    std::lock_guard<std::mutex> lock(recordMutex_);
+    return {recordPeaks_.data(), recordPeaks_.count(), recordPeaks_.hold()};
+}
 
 DiagnosticsSnapshot TonetraceKernel::diagnosticsSnapshot() const {
     DiagnosticsSnapshot d = diagnostics_.snapshot();
     d.instanceId = instanceId_;
     d.recordedSeconds = recordedSeconds();
-    d.captureMegabytes = double(capture_.size()) * sizeof(float) / kBytesPerMegabyte;
+    d.captureMegabytes = double(captureL_.size() + captureR_.size()) * sizeof(float) / kBytesPerMegabyte;
     return d;
 }
 

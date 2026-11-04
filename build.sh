@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tonetrace: build, test, install, sign and validate the VST3 in one command.
-#   ./build.sh                full run (build, unit tests, bridge test, UI test, benchmark, install incl. the Live bridge, validator, host test, screenshots, crash-report check)
-#   ./build.sh --no-install   build, unit tests and UI test only
-#   ./build.sh --release-zip  full run, then dist/Tonetrace-<version>-macOS.zip (bundle with icon, README, logo PNG, TonetraceBridge/, install.sh, uninstall.sh)
+#   ./build.sh                full run (build, unit tests, transcription test, UI test, benchmark, install, validator, host test, screenshots, crash-report check)
+#   ./build.sh --no-install   build, unit tests, transcription test and UI test only
+#   ./build.sh --release-zip  full run, then dist/Tonetrace-<version>-macOS.zip (bundle with icon, README, logo PNG, install.sh, uninstall.sh)
 # Needs the Steinberg VST3 SDK in external/vst3sdk (see README).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -10,7 +10,6 @@ cd "$(dirname "$0")"
 VERSION="$(head -n 1 VERSION)"
 VST3_DIR="${TONETRACE_VST3_DIR:-$HOME/Library/Audio/Plug-Ins/VST3}"
 VST3_BUNDLE="Tonetrace.vst3"
-SCRIPTS_DIR="${TONETRACE_REMOTE_SCRIPTS_DIR:-$HOME/Music/Ableton/User Library/Remote Scripts}"
 REPORT_DIR="$HOME/Library/Logs/DiagnosticReports"
 DO_INSTALL=1
 DO_ZIP=0
@@ -41,17 +40,9 @@ step "Unit tests (CTest)"
 (cd build && ctest --output-on-failure) | tee build/unittests.log
 (cd build && ./tonetrace_tests | tail -1)
 
-step "Neural engine test (CoreML model: octave over a held bass, silence, speed)"
-build/tonetrace_mltest 2>&1 | grep -v "^     note" | tee build/mltest.log | tail -3
-grep -q "MLTEST PASSED" build/mltest.log
-
-step "MuScriptor engine test (real model on real music; skipped until the plug-in has downloaded the model)"
+step "Transcription test (real model on real music, loaded as a song; skipped until the plug-in has downloaded the model)"
 build/tonetrace_mstest 2>&1 | tee build/mstest.log | tail -3
 grep -qE "MSTEST (PASSED|SKIPPED)" build/mstest.log
-
-step "Live bridge test (Python, mock of the Live API)"
-python3 -I -B -m unittest discover -s tests/bridge 2>&1 | tee build/bridgetest.log | tail -4
-grep -q "^OK" build/bridgetest.log
 
 step "UI interaction test (synthetic mouse and key events on the real view)"
 build/tonetrace_uitest 2>&1 | grep -v "$FILTER" | tee build/uitest.log | tail -3
@@ -73,11 +64,6 @@ codesign --force --deep -s - "$VST3_DIR/$VST3_BUNDLE"
 codesign --verify --deep --strict "$VST3_DIR/$VST3_BUNDLE"
 lipo -archs "$VST3_DIR/$VST3_BUNDLE/Contents/MacOS/Tonetrace"
 /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$VST3_DIR/$VST3_BUNDLE/Contents/Info.plist"
-
-step "Install the Live bridge to $SCRIPTS_DIR/TonetraceBridge"
-mkdir -p "$SCRIPTS_DIR/TonetraceBridge"
-rsync -a --delete --exclude __pycache__ --exclude '*.pyc' live-bridge/TonetraceBridge/ "$SCRIPTS_DIR/TonetraceBridge/"   # only this folder: other Remote Scripts stay as they are
-ls "$SCRIPTS_DIR/TonetraceBridge"
 
 step "Steinberg validator on the installed VST3"
 build/bin/Release/validator "$VST3_DIR/$VST3_BUNDLE" > build/validator.log 2>&1 || true
@@ -103,7 +89,6 @@ if [[ $DO_ZIP -eq 1 ]]; then
   STAGE="build/release/$PKG"
   rm -rf build/release && mkdir -p "$STAGE" dist
   ditto --norsrc --noextattr "$VST3_DIR/$VST3_BUNDLE" "$STAGE/$VST3_BUNDLE"
-  rsync -a --exclude __pycache__ --exclude '*.pyc' live-bridge/TonetraceBridge "$STAGE/"
   cp tools/release/README.txt "$STAGE/README.txt"
   cp THIRD_PARTY_LICENSES.md "$STAGE/"
   cp docs/logo.png "$STAGE/Tonetrace-Logo.png"

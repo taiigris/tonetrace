@@ -10,10 +10,8 @@ namespace ttr {
 
 namespace {
 
-constexpr uint32_t kMagic = 0x31555454;  // "TTU1"
-constexpr uint32_t kVersion = 5;  // 2 adds fundamentals / align / tuning trim, 3 the waveform toggle, 4 view mode / grab on click / sampler on drag, 5 the engine (older versions still load)
-constexpr uint32_t kFirstVersion = 1;
-constexpr float kMaxTuningTrim = 50.0f;
+constexpr uint32_t kMagic = 0x32555454;  // "TTU2" (Tonetrace 5)
+constexpr uint32_t kVersion = 1;
 constexpr size_t kHeaderBytes = 16;
 constexpr double kMaxScrollSec = 24.0 * 3600.0, kMaxScrollY = 1.0e6;
 
@@ -33,76 +31,37 @@ public:
         return v;
     }
     bool ok() const { return ok_; }
+
 private:
     const uint8_t* data_;
     size_t size_, pos_ = 0;
     bool ok_ = true;
 };
 
-float clampParam(float v, int id) { return std::isfinite(v) ? std::clamp(v, paramSpec(id).minValue, paramSpec(id).maxValue) : paramSpec(id).defaultValue; }
+double clampOr(double v, double lo, double hi, double fallback) { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; }
 
 }  // namespace
 
-UiSettings uiSettingsFromParams(const ParamValues& p, bool syncToHost) {
-    UiSettings s;
-    s.gain = p[kParamGain];
-    s.range = p[kParamRange];
-    s.speed = p[kParamSpeed];
-    s.quickGrab = p[kParamQuickGrab];
-    s.snap = int(p[kParamSnap]);
-    s.hideDrums = p[kParamHideDrums] >= 0.5f;
-    s.magnet = p[kParamMagnet] >= 0.5f;
-    s.syncToHost = syncToHost;
-    return sanitized(s);
-}
-
-void applyViewParams(const UiSettings& s, ParamValues* p) {
-    (*p)[kParamGain] = s.gain;
-    (*p)[kParamRange] = s.range;
-    (*p)[kParamSpeed] = s.speed;
-    (*p)[kParamQuickGrab] = s.quickGrab;
-    (*p)[kParamSnap] = float(s.snap);
-    (*p)[kParamHideDrums] = s.hideDrums ? 1.0f : 0.0f;
-    (*p)[kParamMagnet] = s.magnet ? 1.0f : 0.0f;
-}
-
 UiSettings sanitized(UiSettings s) {
-    s.gain = clampParam(s.gain, kParamGain);
-    s.range = clampParam(s.range, kParamRange);
-    s.speed = clampParam(s.speed, kParamSpeed);
-    s.quickGrab = clampParam(s.quickGrab, kParamQuickGrab);
-    s.snap = std::clamp(s.snap, 0, int(paramSpec(kParamSnap).maxValue));
-    s.tuningTrim = std::isfinite(s.tuningTrim) ? std::clamp(s.tuningTrim, -kMaxTuningTrim, kMaxTuningTrim) : 0.0f;
-    s.scrollSec = std::isfinite(s.scrollSec) ? std::clamp(s.scrollSec, 0.0, kMaxScrollSec) : 0.0;
-    s.scrollY = std::isfinite(s.scrollY) ? std::clamp(s.scrollY, -1.0, kMaxScrollY) : -1.0;
+    s.pixelsPerSecond = s.pixelsPerSecond <= 0.0 || !std::isfinite(s.pixelsPerSecond) ? kDefaultPixelsPerSecond
+                                                                                       : std::clamp(s.pixelsPerSecond, kMinPixelsPerSecond, kMaxPixelsPerSecond);
+    s.rowHeight = clampOr(s.rowHeight, kMinRowHeight, kMaxRowHeight, kDefaultRowHeight);
+    s.scrollSec = clampOr(s.scrollSec, 0.0, kMaxScrollSec, 0.0);
+    s.scrollY = clampOr(s.scrollY, -1.0, kMaxScrollY, -1.0);
     s.width = std::clamp(s.width, kMinWindowWidth, kMaxWindowSize);
     s.height = std::clamp(s.height, kMinWindowHeight, kMaxWindowSize);
-    if (s.grabEngine < 0 || s.grabEngine > UiSettings::kMaxGrabEngine) s.grabEngine = 0;  // unknown engine -> Classic
     return s;
 }
 
 std::vector<uint8_t> encodeUiSettings(const UiSettings& s) {
     std::vector<uint8_t> body;
-    put<float>(body, s.gain);
-    put<float>(body, s.range);
-    put<float>(body, s.speed);
-    put<float>(body, s.quickGrab);
-    put<int32_t>(body, s.snap);
-    put<uint8_t>(body, s.hideDrums ? 1 : 0);
-    put<uint8_t>(body, s.magnet ? 1 : 0);
-    put<uint8_t>(body, s.syncToHost ? 1 : 0);
+    put<double>(body, s.pixelsPerSecond);
+    put<double>(body, s.rowHeight);
     put<double>(body, s.scrollSec);
     put<double>(body, s.scrollY);
     put<int32_t>(body, s.width);
     put<int32_t>(body, s.height);
-    put<uint8_t>(body, s.fundamentals ? 1 : 0);
-    put<uint8_t>(body, s.alignToSample ? 1 : 0);
-    put<float>(body, s.tuningTrim);
-    put<uint8_t>(body, s.showWave ? 1 : 0);
-    put<uint8_t>(body, s.isSpectrum ? 1 : 0);
-    put<uint8_t>(body, s.grabOnClick ? 1 : 0);
-    put<uint8_t>(body, s.samplerOnDrag ? 1 : 0);
-    put<uint8_t>(body, uint8_t(s.grabEngine));
+    put<uint8_t>(body, s.followPlayhead ? 1 : 0);
     std::vector<uint8_t> out;
     put<uint32_t>(out, kMagic);
     put<uint32_t>(out, kVersion);
@@ -116,38 +75,21 @@ bool decodeUiSettings(const uint8_t* data, size_t size, UiSettings* out, std::st
     auto fail = [&](const char* text) { if (reason) *reason = text; return false; };
     if (!data || size < kHeaderBytes) return fail("the editor state is truncated");
     Reader head(data, size);
-    if (head.get<uint32_t>() != kMagic) return fail("not a Tonetrace editor state");
+    if (head.get<uint32_t>() != kMagic) return fail("not a Tonetrace 5 editor state");
     const uint32_t version = head.get<uint32_t>();
-    if (version < kFirstVersion || version > kVersion) return fail("unknown editor state version");
+    if (version != kVersion) return fail("unknown editor state version");
     const uint32_t length = head.get<uint32_t>(), crc = head.get<uint32_t>();
     if (length != size - kHeaderBytes) return fail("the editor state is truncated");
     if (crc32(data + kHeaderBytes, length) != crc) return fail("editor state checksum mismatch");
     Reader r(data + kHeaderBytes, length);
     UiSettings s;
-    s.gain = r.get<float>();
-    s.range = r.get<float>();
-    s.speed = r.get<float>();
-    s.quickGrab = r.get<float>();
-    s.snap = r.get<int32_t>();
-    s.hideDrums = r.get<uint8_t>() != 0;
-    s.magnet = r.get<uint8_t>() != 0;
-    s.syncToHost = r.get<uint8_t>() != 0;
+    s.pixelsPerSecond = r.get<double>();
+    s.rowHeight = r.get<double>();
     s.scrollSec = r.get<double>();
     s.scrollY = r.get<double>();
     s.width = r.get<int32_t>();
     s.height = r.get<int32_t>();
-    if (version >= 2) {
-        s.fundamentals = r.get<uint8_t>() != 0;
-        s.alignToSample = r.get<uint8_t>() != 0;
-        s.tuningTrim = r.get<float>();
-    }
-    if (version >= 3) s.showWave = r.get<uint8_t>() != 0;
-    if (version >= 4) {
-        s.isSpectrum = r.get<uint8_t>() != 0;
-        s.grabOnClick = r.get<uint8_t>() != 0;
-        s.samplerOnDrag = r.get<uint8_t>() != 0;
-    }
-    if (version >= 5) s.grabEngine = r.get<uint8_t>();  // 4.5.0 wrote 0/1, later 0..2; sanitized() clamps
+    s.followPlayhead = r.get<uint8_t>() != 0;
     if (!r.ok()) return fail("the editor state is truncated");
     *out = sanitized(s);
     return true;

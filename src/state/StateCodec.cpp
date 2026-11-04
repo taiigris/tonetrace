@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstring>
 
-#include "core/Snapshot.h"
 #include "state/Crc32.h"
 
 namespace ttr {
@@ -12,24 +11,25 @@ namespace ttr {
 namespace {
 
 constexpr uint32_t kMagic = 0x31525454;  // "TTR1"
-constexpr uint32_t kLegacyVersion = 3;  // no checksum, no sync flag
-constexpr uint32_t kChecksumVersion = 4;  // first version with the size + CRC header
-constexpr uint32_t kInstrumentVersion = 5;  // instrument per note, song file name
-constexpr size_t kMaxSourceNameBytes = 1024;
-constexpr size_t kHeaderBytes = 16;     // magic, version, payload size, CRC32 (v4)
-constexpr uint32_t kMaxNotesInState = 200000;
-constexpr uint32_t kMaxFramesInState = 40000;
-constexpr uint32_t kMaxPeaksInState = 40000;
-constexpr uint32_t kMaxAudioSamplesInState = 4u * 1024u * 1024u;
-constexpr double kMinClipRate = 8000.0, kMaxClipRate = 96000.0;
-constexpr float kSpectrogramFloorDb = 60.0f;
-constexpr float kPeakScale = 127.0f;
+constexpr size_t kHeaderBytes = 16;      // magic, version, payload size, CRC32
+constexpr uint32_t kMaxNotesInState = 400000;
+constexpr uint32_t kMaxMixEntries = 256;
+constexpr size_t kMaxStringBytes = 4096;
+constexpr double kMinClipRate = 8000.0, kMaxClipRate = 192000.0;
+constexpr double kMaxLengthSec = 3600.0;
+constexpr uint8_t kMuteFlag = 1, kSoloFlag = 2;
+constexpr size_t kNoteBytes = 2 + 8 + 8 + 2;  // pitch, start, end, program
 
 class Writer {
 public:
     template <class T> void put(T v) {
         const auto* p = reinterpret_cast<const uint8_t*>(&v);
         bytes.insert(bytes.end(), p, p + sizeof(T));
+    }
+    void putString(const std::string& text) {
+        const size_t n = std::min(text.size(), kMaxStringBytes);
+        put<uint16_t>(uint16_t(n));
+        bytes.insert(bytes.end(), text.begin(), text.begin() + ptrdiff_t(n));
     }
     std::vector<uint8_t> bytes;
 };
@@ -44,126 +44,38 @@ public:
         pos_ += sizeof(T);
         return v;
     }
+    bool getString(std::string* out) {
+        const uint16_t n = get<uint16_t>();
+        if (!ok_ || n > kMaxStringBytes || remaining() < n) return ok_ = false;
+        out->assign(reinterpret_cast<const char*>(data_ + pos_), n);
+        pos_ += n;
+        return true;
+    }
     bool ok() const { return ok_; }
     size_t remaining() const { return size_ - pos_; }
+
 private:
     const uint8_t* data_;
     size_t size_, pos_ = 0;
     bool ok_ = true;
 };
 
-void putNote(Writer& w, const NoteEvent& n, uint32_t version) {
-    w.put<int32_t>(n.pitch);
-    w.put<double>(n.startSec);
-    w.put<double>(n.endSec);
-    w.put<uint8_t>(n.selected ? 1 : 0);
-    if (version >= kInstrumentVersion) w.put<int16_t>(int16_t(n.program));
-}
-
-NoteEvent getNote(Reader& r, uint32_t version) {
-    NoteEvent n;
-    n.pitch = r.get<int32_t>();
-    n.startSec = r.get<double>();
-    n.endSec = r.get<double>();
-    n.selected = r.get<uint8_t>() != 0;
-    n.program = version >= kInstrumentVersion ? int(r.get<int16_t>()) : kNoProgram;
-    return n;
-}
-
-void putString(Writer& w, const std::string& text) {
-    const size_t n = std::min(text.size(), kMaxSourceNameBytes);
-    w.put<uint16_t>(uint16_t(n));
-    for (size_t i = 0; i < n; ++i) w.put<uint8_t>(uint8_t(text[i]));
-}
-
-bool getString(Reader& r, std::string* out) {
-    const uint16_t n = r.get<uint16_t>();
-    if (!r.ok() || n > kMaxSourceNameBytes || r.remaining() < n) return false;
-    out->resize(n);
-    for (char& c : *out) c = char(r.get<uint8_t>());
-    return r.ok();
-}
-
-uint8_t quantizeValue(float v) {
-    if (v <= 0.0f) return 0;
-    const float db = 20.0f * std::log10(v);
-    return uint8_t(std::lround(std::clamp(1.0f + db / kSpectrogramFloorDb, 0.0f, 1.0f) * 255.0f));
-}
-
-float dequantizeValue(uint8_t q) {
-    return q == 0 ? 0.0f : std::pow(10.0f, ((q / 255.0f) - 1.0f) * kSpectrogramFloorDb / 20.0f);
-}
-
-// Spectrogram energies are stored on a 60 dB scale relative to the loudest raw value.
-uint8_t quantizeRel(float v, float ref) { return quantizeValue(ref > 0.0f ? v / ref : 0.0f); }
-float dequantizeRel(uint8_t q, float ref) { return dequantizeValue(q) * ref; }
-uint8_t quantizeUnit(float v) { return uint8_t(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); }
-
-size_t spectrogramBytes(const Spectrogram& s) { return size_t(s.frames) * (2 * kNumNotes + 2); }
-
-void putSpectrogram(Writer& w, const Spectrogram& s) {
-    const float ref = s.peak > 0.0f ? s.peak : *std::max_element(s.raw.begin(), s.raw.end());
-    w.put<double>(s.hopSec);
-    w.put<double>(s.lengthSec);
-    w.put<uint32_t>(uint32_t(s.frames));
-    w.put<float>(ref);
-    for (float v : s.raw) w.put<uint8_t>(quantizeRel(v, ref));
-    for (float v : s.harmonic) w.put<uint8_t>(quantizeRel(v, ref));
-    for (float v : s.percFrac) w.put<uint8_t>(quantizeUnit(v));
-    for (float v : s.flux) w.put<uint8_t>(quantizeUnit(v));
-}
-
-std::shared_ptr<Spectrogram> getSpectrogram(Reader& r) {
-    auto s = std::make_shared<Spectrogram>();
-    s->hopSec = r.get<double>();
-    s->lengthSec = r.get<double>();
-    const uint32_t frames = r.get<uint32_t>();
-    const float ref = r.get<float>();
-    if (!r.ok() || frames == 0 || frames > kMaxFramesInState || !(s->hopSec > 0.0) || !std::isfinite(ref) || ref <= 0.0f ||
-        r.remaining() < size_t(frames) * (2 * kNumNotes + 2))
-        return nullptr;
-    s->frames = int(frames);
-    s->raw.resize(size_t(frames) * kNumNotes);
-    s->harmonic.resize(s->raw.size());
-    s->percFrac.resize(frames);
-    s->flux.resize(frames);
-    for (float& v : s->raw) v = dequantizeRel(r.get<uint8_t>(), ref);
-    for (float& v : s->harmonic) v = dequantizeRel(r.get<uint8_t>(), ref);
-    for (float& v : s->percFrac) v = r.get<uint8_t>() / 255.0f;
-    for (float& v : s->flux) v = r.get<uint8_t>() / 255.0f;
-    s->peak = ref;
-    return r.ok() ? s : nullptr;
-}
-
-constexpr size_t kNoteStateBytes = 21;  // pitch, start, end, selected
-constexpr size_t kProgramBytes = 2;     // v5: instrument
-
-size_t noteStateBytes(uint32_t version) { return kNoteStateBytes + (version >= kInstrumentVersion ? kProgramBytes : 0); }
-
-bool validNote(const NoteEvent& n) {
-    return n.pitch >= 0 && n.pitch <= 127 && std::isfinite(n.startSec) && std::isfinite(n.endSec) && n.endSec >= n.startSec &&
-           (n.program == kNoProgram || (n.program >= 0 && n.program <= kMaxProgram));
-}
-
 bool fail(std::string* reason, const char* text) {
     if (reason) *reason = text;
     return false;
 }
 
-// Validates the header (v4: size and CRC) and positions `payload` at the parameter block.
+bool validProgram(int p) { return p == kNoProgram || (p >= 0 && p <= kMaxProgram); }
+
+// Validates the header (size and CRC) and positions `payload` at the parameter block.
 bool readHeader(const uint8_t* data, size_t size, uint32_t* version, const uint8_t** payload, size_t* payloadSize, std::string* reason) {
     if (!data || size == 0) return fail(reason, "the state is empty");
     if (size < 8) return fail(reason, "the state is truncated");
     Reader head(data, size);
     if (head.get<uint32_t>() != kMagic) return fail(reason, "not a Tonetrace state (bad signature)");
     *version = head.get<uint32_t>();
-    if (*version == kLegacyVersion) {
-        *payload = data + 8;
-        *payloadSize = size - 8;
-        return true;
-    }
     if (*version > kStateFormatVersion) return fail(reason, "the state was saved by a newer Tonetrace version");
-    if (*version < kChecksumVersion) return fail(reason, "unknown state format version");
+    if (*version < kStateFormatVersion) return fail(reason, "the state was saved by Tonetrace 4 - version 5 starts with a new song (load the song again)");
     if (size < kHeaderBytes) return fail(reason, "the state is truncated");
     const uint32_t length = head.get<uint32_t>(), crc = head.get<uint32_t>();
     if (length != size - kHeaderBytes) return fail(reason, "the state is truncated or has extra data");
@@ -181,80 +93,126 @@ bool readParams(Reader& r, ParamValues* params, std::string* reason) {
         if (!std::isfinite((*params)[size_t(i)])) return fail(reason, "invalid parameter value");
         (*params)[size_t(i)] = std::clamp((*params)[size_t(i)], paramSpec(i).minValue, paramSpec(i).maxValue);
     }
-    (*params)[kParamRecord] = 0.0f;  // never restore a running recording or preview
-    (*params)[kParamPreview] = 0.0f;
+    (*params)[kParamRecord] = 0.0f;  // never restore a running recording
     return true;
 }
 
-void putPeaks(Writer& w, const WavePeaks& peaks) {
-    w.put<uint32_t>(uint32_t(peaks.minMax.size()));
-    for (float v : peaks.minMax) w.put<int8_t>(int8_t(std::lround(std::clamp(v, -1.0f, 1.0f) * kPeakScale)));
+void putMixer(Writer& w, const MixerState& mixer) {
+    const auto& entries = mixer.entries();
+    const size_t n = std::min<size_t>(entries.size(), kMaxMixEntries);
+    w.put<uint16_t>(uint16_t(n));
+    size_t written = 0;
+    for (const auto& [program, mix] : entries) {
+        if (written++ == n) break;
+        w.put<int16_t>(int16_t(program));
+        w.put<uint8_t>(uint8_t((mix.mute ? kMuteFlag : 0) | (mix.solo ? kSoloFlag : 0)));
+        w.put<float>(mix.gain);
+    }
 }
 
-std::shared_ptr<WavePeaks> getPeaks(Reader& r) {
-    const uint32_t values = r.get<uint32_t>();
-    if (!r.ok() || values % 2 != 0 || values > 2 * kMaxPeaksInState || r.remaining() < values) return nullptr;
-    auto peaks = std::make_shared<WavePeaks>();
-    peaks->minMax.resize(values);
-    for (float& v : peaks->minMax) v = float(r.get<int8_t>()) / kPeakScale;
-    return peaks;
+bool getMixer(Reader& r, MixerState* out) {
+    const uint16_t n = r.get<uint16_t>();
+    if (!r.ok() || n > kMaxMixEntries) return false;
+    MixerState mixer;
+    for (uint16_t i = 0; i < n; ++i) {
+        const int program = r.get<int16_t>();
+        const uint8_t flags = r.get<uint8_t>();
+        const float gain = r.get<float>();
+        if (!r.ok() || !validProgram(program) || !std::isfinite(gain)) return false;
+        mixer = mixer.with(program, {(flags & kMuteFlag) != 0, (flags & kSoloFlag) != 0, gain});
+    }
+    *out = mixer;
+    return true;
 }
 
-void putAudio(Writer& w, const AudioClip& clip) {
-    w.put<double>(clip.sampleRate);
-    w.put<uint32_t>(uint32_t(clip.samples.size()));
-    for (int16_t v : clip.samples) w.put<int16_t>(v);
+void putAudio(Writer& w, const SongAudio& audio) {
+    w.put<double>(audio.sampleRate);
+    w.put<uint8_t>(uint8_t(audio.channels));
+    w.put<uint32_t>(uint32_t(audio.samples.size()));
+    for (int16_t v : audio.samples) w.put<int16_t>(v);
 }
 
-std::shared_ptr<AudioClip> getAudio(Reader& r) {
-    auto clip = std::make_shared<AudioClip>();
-    clip->sampleRate = r.get<double>();
+std::shared_ptr<SongAudio> getAudio(Reader& r) {
+    auto audio = std::make_shared<SongAudio>();
+    audio->sampleRate = r.get<double>();
+    audio->channels = r.get<uint8_t>();
     const uint32_t count = r.get<uint32_t>();
-    if (!r.ok() || !(clip->sampleRate >= kMinClipRate && clip->sampleRate <= kMaxClipRate) || count > kMaxAudioSamplesInState ||
-        r.remaining() < size_t(count) * sizeof(int16_t))
+    if (!r.ok() || !(audio->sampleRate >= kMinClipRate && audio->sampleRate <= kMaxClipRate) || audio->channels < 1 || audio->channels > 2 ||
+        count > kMaxStateAudioSamples || count % uint32_t(audio->channels) != 0 || r.remaining() < size_t(count) * sizeof(int16_t))
         return nullptr;
-    clip->samples.resize(count);
-    for (int16_t& v : clip->samples) v = r.get<int16_t>();
-    return clip;
+    audio->samples.resize(count);
+    for (int16_t& v : audio->samples) v = r.get<int16_t>();
+    return audio;
+}
+
+void putDocument(Writer& w, const Document& doc) {
+    w.putString(doc.sourceName);
+    w.putString(doc.sourcePath);
+    w.put<uint8_t>(doc.isRecording ? 1 : 0);
+    w.put<double>(doc.lengthSec);
+    // A transcription that was still running is stored as cancelled (its notes so far are kept).
+    const TranscriptionPhase phase = doc.transcription.isActive() ? TranscriptionPhase::Cancelled : doc.transcription.phase;
+    w.put<uint8_t>(uint8_t(phase));
+    w.put<double>(doc.transcription.finalizedSec);
+    w.put<uint32_t>(uint32_t(std::min<size_t>(doc.notes.size(), kMaxNotesInState)));
+    size_t written = 0;
+    for (const NoteEvent& n : doc.notes) {
+        if (written++ == kMaxNotesInState) break;
+        w.put<int16_t>(int16_t(n.pitch));
+        w.put<double>(n.startSec);
+        w.put<double>(n.endSec);
+        w.put<int16_t>(int16_t(n.program));
+    }
+    const bool storeAudio = doc.isRecording && doc.audio && doc.audio->samples.size() <= kMaxStateAudioSamples;
+    w.put<uint8_t>(storeAudio ? 1 : 0);
+    if (storeAudio) putAudio(w, *doc.audio);
+}
+
+bool getDocument(Reader& r, DocumentPtr* out, std::string* reason) {
+    auto doc = std::make_shared<Document>();
+    if (!r.getString(&doc->sourceName) || !r.getString(&doc->sourcePath)) return fail(reason, "invalid song name");
+    doc->isRecording = r.get<uint8_t>() != 0;
+    doc->lengthSec = r.get<double>();
+    const uint8_t phase = r.get<uint8_t>();
+    doc->transcription.finalizedSec = r.get<double>();
+    if (!r.ok() || !std::isfinite(doc->lengthSec) || doc->lengthSec < 0.0 || doc->lengthSec > kMaxLengthSec ||
+        phase > uint8_t(TranscriptionPhase::Cancelled) || !std::isfinite(doc->transcription.finalizedSec))
+        return fail(reason, "invalid document header");
+    doc->transcription.phase = TranscriptionPhase(phase);
+    if (doc->transcription.isActive()) doc->transcription.phase = TranscriptionPhase::Cancelled;
+    doc->transcription.progress = doc->transcription.phase == TranscriptionPhase::Done ? 1.0f : 0.0f;
+    const uint32_t count = r.get<uint32_t>();
+    if (!r.ok() || count > kMaxNotesInState || r.remaining() < size_t(count) * kNoteBytes) return fail(reason, "invalid note count");
+    doc->notes.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        NoteEvent n;
+        n.pitch = r.get<int16_t>();
+        n.startSec = r.get<double>();
+        n.endSec = r.get<double>();
+        n.program = r.get<int16_t>();
+        if (n.pitch < 0 || n.pitch > 127 || !std::isfinite(n.startSec) || !std::isfinite(n.endSec) || n.endSec < n.startSec || !validProgram(n.program))
+            return fail(reason, "invalid note data");
+        doc->notes.push_back(n);
+    }
+    if (r.get<uint8_t>() != 0 && !(doc->audio = getAudio(r))) return fail(reason, "invalid audio data");
+    if (!r.ok()) return fail(reason, "the state is truncated");
+    std::stable_sort(doc->notes.begin(), doc->notes.end(), [](const NoteEvent& a, const NoteEvent& b) { return a.startSec < b.startSec; });
+    *out = doc;
+    return true;
 }
 
 }  // namespace
 
-std::vector<uint8_t> encodeState(const ParamValues& params, const Snapshot* snap, bool syncToHost) {
-    return encodeStateAs(params, snap, syncToHost, kStateFormatVersion);
-}
-
-std::vector<uint8_t> encodeStateAs(const ParamValues& params, const Snapshot* snap, bool syncToHost, uint32_t version) {
-    if (version < kChecksumVersion || version > kStateFormatVersion) version = kStateFormatVersion;
+std::vector<uint8_t> encodeState(const ParamValues& params, const Document* document, const MixerState& mixer, double exportBpm) {
     Writer w;
     for (float p : params) w.put<float>(p);
-    w.put<uint8_t>(syncToHost ? 1 : 0);
-    w.put<uint8_t>(snap ? 1 : 0);
-    if (snap) {
-        w.put<double>(snap->lengthSec);
-        w.put<double>(snap->bpm);
-        w.put<double>(snap->startPpq);
-        w.put<uint64_t>(snap->version);
-        for (float v : snap->chroma) w.put<float>(v);
-        w.put<uint32_t>(uint32_t(snap->notes.size()));
-        for (const NoteEvent& n : snap->notes) putNote(w, n, version);
-
-        const Spectrogram* spec = snap->spectrogram.get();
-        const bool storeSpectrogram = spec && spectrogramBytes(*spec) < kMaxSpectrogramStateBytes;
-        w.put<uint8_t>(storeSpectrogram ? 1 : 0);
-        if (storeSpectrogram) putSpectrogram(w, *spec);
-        // A long imported song keeps its notes; waveform and audio beyond what a state may hold are left out (4.7).
-        const bool storePeaks = snap->peaks && snap->peaks->minMax.size() <= 2 * size_t(kMaxPeaksInState);
-        w.put<uint8_t>(storePeaks ? 1 : 0);
-        if (storePeaks) putPeaks(w, *snap->peaks);
-        const bool storeAudio = snap->audio && snap->audio->samples.size() <= kMaxAudioSamplesInState;
-        w.put<uint8_t>(storeAudio ? 1 : 0);
-        if (storeAudio) putAudio(w, *snap->audio);
-        if (version >= kInstrumentVersion) putString(w, snap->sourceName);
-    }
+    w.put<double>(std::isfinite(exportBpm) && exportBpm > 0.0 ? exportBpm : 0.0);
+    putMixer(w, mixer);
+    w.put<uint8_t>(document ? 1 : 0);
+    if (document) putDocument(w, *document);
     Writer out;
     out.put<uint32_t>(kMagic);
-    out.put<uint32_t>(version);
+    out.put<uint32_t>(kStateFormatVersion);
     out.put<uint32_t>(uint32_t(w.bytes.size()));
     out.put<uint32_t>(crc32(w.bytes.data(), w.bytes.size()));
     out.bytes.insert(out.bytes.end(), w.bytes.begin(), w.bytes.end());
@@ -270,40 +228,6 @@ bool decodeStateParams(const uint8_t* data, size_t size, ParamValues* out, std::
     return readParams(r, out, reason);
 }
 
-namespace {
-
-bool decodeSnapshot(Reader& r, uint32_t formatVersion, SnapshotPtr* out, std::string* reason) {
-    Recording rec;
-    rec.lengthSec = r.get<double>();
-    rec.bpm = r.get<double>();
-    rec.startPpq = r.get<double>();
-    const uint64_t version = r.get<uint64_t>();
-    if (!r.ok() || !std::isfinite(rec.bpm) || rec.bpm < 10 || rec.bpm > 999 || !std::isfinite(rec.lengthSec) || !std::isfinite(rec.startPpq))
-        return fail(reason, "invalid recording header");
-    for (float& v : rec.chroma) {
-        v = r.get<float>();
-        if (!std::isfinite(v)) return fail(reason, "invalid key data");
-    }
-    const uint32_t count = r.get<uint32_t>();
-    if (!r.ok() || count > kMaxNotesInState || r.remaining() < size_t(count) * noteStateBytes(formatVersion)) return fail(reason, "invalid note count");
-    std::vector<NoteEvent> notes;
-    notes.reserve(count);
-    for (uint32_t i = 0; i < count; ++i) {
-        const NoteEvent n = getNote(r, formatVersion);
-        if (!validNote(n)) return fail(reason, "invalid note data");
-        notes.push_back(n);
-    }
-    if (r.get<uint8_t>() != 0 && !(rec.spectrogram = getSpectrogram(r))) return fail(reason, "invalid spectrogram data");
-    if (r.get<uint8_t>() != 0 && !(rec.peaks = getPeaks(r))) return fail(reason, "invalid waveform data");
-    if (r.get<uint8_t>() != 0 && !(rec.audio = getAudio(r))) return fail(reason, "invalid audio data");
-    if (formatVersion >= kInstrumentVersion && !getString(r, &rec.sourceName)) return fail(reason, "invalid song name");
-    if (!r.ok()) return fail(reason, "the state is truncated");
-    *out = makeSnapshot(std::move(notes), rec, version);
-    return true;
-}
-
-}  // namespace
-
 bool decodeState(const uint8_t* data, size_t size, DecodedState* out, std::string* reason) {
     uint32_t version = 0;
     const uint8_t* payload = nullptr;
@@ -313,10 +237,12 @@ bool decodeState(const uint8_t* data, size_t size, DecodedState* out, std::strin
     DecodedState state;
     state.formatVersion = version;
     if (!readParams(r, &state.params, reason)) return false;
-    if (version >= kChecksumVersion) state.syncToHost = r.get<uint8_t>() != 0;
-    const uint8_t hasSnapshot = r.get<uint8_t>();
+    state.exportBpm = r.get<double>();
+    if (!r.ok() || !std::isfinite(state.exportBpm) || state.exportBpm < 0.0) return fail(reason, "invalid export tempo");
+    if (!getMixer(r, &state.mixer)) return fail(reason, "invalid instrument mix");
+    const uint8_t hasDocument = r.get<uint8_t>();
     if (!r.ok()) return fail(reason, "the state is truncated");
-    if (hasSnapshot != 0 && !decodeSnapshot(r, version, &state.snapshot, reason)) return false;
+    if (hasDocument != 0 && !getDocument(r, &state.document, reason)) return false;
     *out = std::move(state);
     return true;
 }

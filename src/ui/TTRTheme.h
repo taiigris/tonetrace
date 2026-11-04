@@ -75,8 +75,8 @@ static inline BOOL TTRIsBlackKey(int pitch) {
     return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
 }
 
-// 4.7: note colour per instrument (MuScriptor songs). Notes without an instrument keep the turquoise accent; the
-// families get their own hues and the members of a family step through lightness, so a family reads at a glance.
+// Note colour per instrument. The families get their own hues and the members of a family step through lightness, so a
+// family reads at a glance (bass purple, guitars green, keys blue, voice pink, synths cyan, drums grey, ...).
 #include <algorithm>
 
 #include "core/Instruments.h"
@@ -90,7 +90,7 @@ static inline uint32_t TTRInstrumentRGB(int program) {
         0x52D68A,  // Guitar
         0xA45BFF,  // Bass
         0xFF5C7A,  // Strings
-        0x45C8F0,  // Voice
+        0xFF8FB1,  // Voice
         0xFFB547,  // Brass
         0xFF7A4D,  // Reed
         0xC6E05A,  // Winds

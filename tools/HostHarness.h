@@ -119,7 +119,6 @@ struct Instance {
     }
 };
 
-inline double toNormalizedSpeed(double plain) { return (plain - ttr::kSpeedMin) / (ttr::kSpeedMax - ttr::kSpeedMin); }
 
 inline double rms(const std::vector<float>& v) {
     double sum = 0;

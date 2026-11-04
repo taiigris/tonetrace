@@ -24,9 +24,12 @@ class Model;  // opaque, owns the loaded weights
 bool isSupported();
 // Loads a GGUF checkpoint (GPU when available, else CPU). Null and a reason on failure.
 std::shared_ptr<Model> load(const std::string& path, std::string* reason);
-// Transcribes 16 kHz mono audio. `cancel` is polled often, `progress` gets 0..1. False with a reason on failure or cancel.
+// What one 5 s chunk added: notes that are final now (each reported once), how far the signal is final, progress 0..1.
+using UpdateCallback = std::function<void(float progress, double finalizedSec, const std::vector<Note>& newNotes)>;
+// Transcribes 16 kHz mono audio. `cancel` is polled often, `onUpdate` follows every chunk. `out` gets every note in the
+// end. False with a reason on failure or cancel.
 bool transcribe(Model& model, const float* samples, size_t count, std::vector<Note>* out, const std::function<bool()>& cancel,
-                const std::function<void(float)>& progress, std::string* reason);
+                const UpdateCallback& onUpdate, std::string* reason);
 // Name of the device the model runs on ("Apple M1 Pro", "CPU").
 std::string deviceName(const Model& model);
 

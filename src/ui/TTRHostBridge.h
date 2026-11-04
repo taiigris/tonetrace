@@ -17,10 +17,9 @@ public:
     virtual void endEdit(int paramId) = 0;
     // Asks the host to resize the plug-in window (VST3: IPlugFrame::resizeView). Default: ignore.
     virtual void requestResize(int /*width*/, int /*height*/) {}
-    // Editor state (zoom, scroll, window size, view settings): restored when the editor opens, stored as it changes.
+    // Editor state (zoom, scroll, window size): restored when the editor opens, stored as it changes.
     virtual UiSettings uiSettings() const { return UiSettings{}; }
     virtual void storeUiSettings(const UiSettings& /*settings*/) {}
-    virtual void setSyncToHost(bool on) { kernel()->setSyncToHost(on); }
 };
 
 // Bridge that talks to the kernel only (no host involved): used by the tools.

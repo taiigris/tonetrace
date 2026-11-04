@@ -6,7 +6,7 @@
 
 namespace ttr {
 
-// Reads at most `maxSeconds` of `path`, converted by Core Audio to mono float at `sampleRate`.
+// Reads at most `maxSeconds` of `path`, converted by Core Audio to float at `sampleRate` (one or two channels).
 bool decodeWithCoreAudio(const std::string& path, double sampleRate, double maxSeconds, DecodedAudio* out, std::string* reason);
 // Registers decodeWithCoreAudio with the core (idempotent).
 void installAudioFileDecoder();

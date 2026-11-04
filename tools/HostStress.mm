@@ -2,7 +2,6 @@
 // every sample rate and block size, offline rendering, parallel instances and an editor that opens and closes under load.
 #include "HostHarness.h"
 #include "TestSignals.h"
-#include "core/NoteEdit.h"
 
 IMPLEMENT_FUNKNOWN_METHODS(hosttest::TestFrame, Steinberg::IPlugFrame, Steinberg::IPlugFrame::iid)
 
@@ -17,11 +16,11 @@ bool bitEqual(const std::vector<float>& a, const std::vector<float>& b) {
     return a.size() == b.size() && (a.empty() || memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0);
 }
 
-// The v3 state format (no header checksum, no sync flag): signature, version 3, 13 parameters, "no snapshot".
-std::vector<uint8_t> legacyV3State(float gain) {
+// A Tonetrace 4 project (state format v3): signature, version 3, 13 parameters, "no snapshot".
+std::vector<uint8_t> legacyV3State() {
     std::vector<uint8_t> bytes = {0x54, 0x54, 0x52, 0x31, 3, 0, 0, 0};
-    for (int i = 0; i < ttr::kNumParams; ++i) {
-        const float v = i == ttr::kParamGain ? gain : ttr::paramSpec(i).defaultValue;
+    for (int i = 0; i < 13; ++i) {
+        const float v = 0.5f;
         const auto* p = reinterpret_cast<const uint8_t*>(&v);
         bytes.insert(bytes.end(), p, p + 4);
     }
@@ -39,7 +38,7 @@ MemoryStream* streamOf(const std::vector<uint8_t>& bytes) {
 // ---------------------------------------------------------------- Live's log: controller state and setProcessing
 
 void testControllerStateAndProcessing(const VST3::Hosting::PluginFactory& factory, const VST3::Hosting::ClassInfo& cls) {
-    printf("9. Controller state, setProcessing and old (v3) projects (the messages in Live's Log.txt)\n");
+    printf("8. Controller state, setProcessing and Tonetrace 4 projects\n");
     Instance a;
     if (!a.open(factory, cls)) { check(false, "instance opens"); return; }
     check(a.processor->setProcessing(false) == kResultOk && a.processor->setProcessing(true) == kResultOk, "setProcessing returns kResultOk (was \"not implemented\")");
@@ -51,10 +50,7 @@ void testControllerStateAndProcessing(const VST3::Hosting::PluginFactory& factor
     view->attached((__bridge void*)window.contentView, kPlatformTypeNSView);
     ViewRect bigger(0, 0, 1234, 701);
     view->onSize(&bigger);
-    a.controller->setParamNormalized(ttr::kParamGain, 0.3);
-    a.controller->setParamNormalized(ttr::kParamSpeed, toNormalizedSpeed(4.0));
-    a.controller->setParamNormalized(ttr::kParamSnap, 0.2);
-    a.controller->setParamNormalized(ttr::kParamHideDrums, 0.0);
+    a.controller->setParamNormalized(ttr::kParamMix, 0.3);
     pumpRunLoop(0.1);
 
     MemoryStream controllerState;
@@ -71,14 +67,11 @@ void testControllerStateAndProcessing(const VST3::Hosting::PluginFactory& factor
     check(b.component->setState(&componentState) == kResultOk, "component setState");
     rewind(componentState);
     check(b.controller->setComponentState(&componentState) == kResultOk, "controller setComponentState from the processor state");
-    check(std::fabs(b.controller->getParamNormalized(ttr::kParamGain) - 0.3) < 1e-6, "setComponentState syncs the controller (Gain)");
+    check(std::fabs(b.controller->getParamNormalized(ttr::kParamMix) - 0.3) < 1e-6, "setComponentState syncs the controller (Mix)");
     rewind(controllerState);
     check(b.controller->setState(&controllerState) == kResultOk, "controller setState works");
-    check(std::fabs(b.controller->getParamNormalized(ttr::kParamSnap) - 0.2) < 1e-6 && b.controller->getParamNormalized(ttr::kParamHideDrums) == 0.0 &&
-              std::fabs(b.controller->getParamNormalized(ttr::kParamSpeed) - toNormalizedSpeed(4.0)) < 1e-6,
-          "controller state restores Snap, Hide drums and Speed");
     b.process(nullptr);
-    check(b.state().params[ttr::kParamGain] == 0.3f && b.state().params[ttr::kParamHideDrums] == 0.0f, "the restored view settings reach the processor");
+    check(b.state().params[ttr::kParamMix] == 0.3f, "the restored parameters reach the processor");
     IPtr<IPlugView> restoredView = owned(b.controller->createView(ViewType::kEditor));
     ViewRect size;
     restoredView->getSize(&size);
@@ -93,17 +86,17 @@ void testControllerStateAndProcessing(const VST3::Hosting::PluginFactory& factor
 
     Instance c;
     if (c.open(factory, cls)) {
-        const std::vector<uint8_t> v3 = legacyV3State(0.8f);
+        const std::vector<uint8_t> v3 = legacyV3State();
         IPtr<MemoryStream> s1 = owned(streamOf(v3));
-        check(c.component->setState(s1) == kResultOk, "a v3 project loads into the processor");
+        check(c.component->setState(s1) != kResultOk, "a Tonetrace 4 project is refused with a reason (no crash)");
         IPtr<MemoryStream> s2 = owned(streamOf(v3));
-        check(c.controller->setComponentState(s2) == kResultOk && std::fabs(c.controller->getParamNormalized(ttr::kParamGain) - 0.8) < 1e-6, "and into the controller");
+        check(c.controller->setComponentState(s2) != kResultOk, "and by the controller");
         std::vector<uint8_t> broken = v3;
         broken.resize(20);
         IPtr<MemoryStream> s3 = owned(streamOf(broken));
         check(c.component->setState(s3) != kResultOk, "a truncated state is refused without a crash");
         std::vector<float> out;
-        check(c.process(nullptr, &out) && c.state().params[ttr::kParamGain] == 0.8f, "the instance keeps working");
+        check(c.process(nullptr, &out) && c.state().params[ttr::kParamMix] == 0.5f, "the instance keeps working with its defaults");
         c.close();
     }
     a.close();
@@ -113,7 +106,7 @@ void testControllerStateAndProcessing(const VST3::Hosting::PluginFactory& factor
 // ---------------------------------------------------------------- sample rates, block sizes, offline
 
 void testRatesBlocksAndOffline(const VST3::Hosting::PluginFactory& factory, const VST3::Hosting::ClassInfo& cls) {
-    printf("10. Sample rates, variable block sizes (incl. 0 frames), mono / stereo and offline rendering\n");
+    printf("9. Sample rates, variable block sizes (incl. 0 frames), mono / stereo and offline rendering\n");
     static const int32 sizes[] = {1, 2, 3, 7, 64, 127, 0, 480, 512, 333, 1024, 0, 5};
     bool allExact = true, allCaptured = true;
     for (double rate : {44100.0, 48000.0, 88200.0, 96000.0, 192000.0}) {
@@ -134,8 +127,8 @@ void testRatesBlocksAndOffline(const VST3::Hosting::PluginFactory& factory, cons
             inst.setParam(ttr::kParamRecord, 0.0);
             inst.process(nullptr, nullptr, nullptr, 64);
             ttr::DecodedState st;
-            allCaptured &= waitFor([&] { inst.process(nullptr, nullptr, nullptr, 64); st = inst.state(); return st.snapshot && st.snapshot->hasRecording(); });
-            allCaptured &= st.snapshot && std::fabs(st.snapshot->lengthSec - seconds) < 0.05;
+            allCaptured &= waitFor([&] { inst.process(nullptr, nullptr, nullptr, 64); st = inst.state(); return st.document && st.document->audio; });
+            allCaptured &= st.document && std::fabs(st.document->lengthSec - seconds) < 0.05;
             inst.close();
         }
     }
@@ -155,8 +148,8 @@ void testRatesBlocksAndOffline(const VST3::Hosting::PluginFactory& factory, cons
         inst.setParam(ttr::kParamRecord, 0.0);
         inst.process(nullptr);
         ttr::DecodedState st;
-        waitFor([&] { inst.process(nullptr); st = inst.state(); return st.snapshot && st.snapshot->audio; });
-        if (st.snapshot && st.snapshot->audio) clips[run] = st.snapshot->audio->samples;
+        waitFor([&] { inst.process(nullptr); st = inst.state(); return st.document && st.document->audio; });
+        if (st.document && st.document->audio) clips[run] = st.document->audio->samples;
         inst.close();
     }
     check(bitEqual(renders[0], renders[1]) && !renders[0].empty() && bitEqual(renders[0], std::vector<float>(signal.begin(), signal.begin() + ptrdiff_t(renders[0].size()))),
@@ -167,7 +160,7 @@ void testRatesBlocksAndOffline(const VST3::Hosting::PluginFactory& factory, cons
 // ---------------------------------------------------------------- parallel instances and the editor under load
 
 void testParallelInstances(const VST3::Hosting::PluginFactory& factory, const VST3::Hosting::ClassInfo& cls, const std::vector<float>& signal) {
-    printf("11. Eight instances in parallel (audio threads) while their editors open and close\n");
+    printf("10. Eight instances in parallel (audio threads) while their editors open and close\n");
     std::vector<std::unique_ptr<Instance>> instances;
     for (int i = 0; i < kParallelInstances; ++i) {
         instances.push_back(std::make_unique<Instance>());
@@ -187,11 +180,8 @@ void testParallelInstances(const VST3::Hosting::PluginFactory& factory, const VS
             bool exact = bitEqual(out, std::vector<float>(sig.begin(), sig.begin() + ptrdiff_t(out.size())));
             inst.setParam(ttr::kParamRecord, 0.0);
             ttr::DecodedState st;
-            const bool done = waitFor([&] { inst.process(nullptr); st = inst.state(); return st.snapshot && st.snapshot->hasRecording(); });
-            inst.setParam(ttr::kParamPreview, 1.0);
-            std::vector<float> preview;
-            for (int b = 0; b < 100; ++b) inst.process(nullptr, &preview);
-            ok[size_t(i)] = exact && done && rms(preview) > 0.001;
+            const bool done = waitFor([&] { inst.process(nullptr); st = inst.state(); return st.document && st.document->audio; });
+            ok[size_t(i)] = exact && done && std::fabs(st.document->lengthSec - double(out.size()) / rate) < 0.05;
         });
     }
     int cycles = 0;
@@ -211,12 +201,12 @@ void testParallelInstances(const VST3::Hosting::PluginFactory& factory, const VS
     for (std::thread& t : threads) t.join();
     int good = 0;
     for (int v : ok) good += v;
-    check(good == kParallelInstances, "8 instances record, analyse and preview independently while editors open and close");
+    check(good == kParallelInstances, "8 instances record into their own documents while editors open and close");
     for (auto& inst : instances) inst->close();
 }
 
 void testEditorCycles(const VST3::Hosting::PluginFactory& factory, const VST3::Hosting::ClassInfo& cls, const std::vector<float>& signal) {
-    printf("12. %d editor open / close cycles while recording and previewing\n", kEditorCycles);
+    printf("11. %d editor open / close cycles while recording and afterwards\n", kEditorCycles);
     Instance inst;
     if (!inst.open(factory, cls)) { check(false, "instance opens"); return; }
     inst.setParam(ttr::kParamRecord, 1.0);
@@ -236,10 +226,9 @@ void testEditorCycles(const VST3::Hosting::PluginFactory& factory, const VST3::H
     std::vector<ttr::NoteEvent> notes;
     int created = 0;
     for (int i = 0; i < kEditorCycles; ++i) {
-        if (i == 60) {  // switch from recording to preview halfway: the editors then open on a running preview
+        if (i == 60) {  // stop the recording: the editors then open on its document
             inst.setParam(ttr::kParamRecord, 0.0);
-            waitFor([&] { return inst.state().snapshot != nullptr; });
-            inst.setParam(ttr::kParamPreview, 1.0);
+            waitFor([&] { return inst.state().document != nullptr; });
         }
         IPtr<IPlugView> view = owned(inst.controller->createView(ViewType::kEditor));
         if (!view) continue;
@@ -262,10 +251,9 @@ void testEditorCycles(const VST3::Hosting::PluginFactory& factory, const VST3::H
     audio.join();
     check(created == kEditorCycles, "all 200 editors were created and attached");
     check(blocks > 100, "the audio thread kept processing during all cycles");
-    inst.setParam(ttr::kParamPreview, 0.0);
     inst.process(nullptr);
     std::vector<float> out;
-    check(inst.process(&signal[0], &out) && out.size() == size_t(kBlock) && inst.state().snapshot != nullptr, "the plug-in is intact afterwards");
+    check(inst.process(&signal[0], &out) && out.size() == size_t(kBlock) && inst.state().document != nullptr, "the plug-in is intact afterwards");
     inst.close();
 }
 

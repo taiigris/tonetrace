@@ -4,7 +4,6 @@
 #include <cstdio>
 
 #include "analysis/ml/MuScriptorEngine.h"
-#include "analysis/ml/NeuralModel.h"
 #include "core/Version.h"
 
 namespace ttr {
@@ -70,7 +69,6 @@ DiagnosticsSnapshot Diagnostics::snapshot() const {
     d.overruns = overruns_.load(std::memory_order_relaxed);
     d.lastBlock = lastBlock_.load(std::memory_order_relaxed);
     d.workerDelayMs = workerDelayMs_.load(std::memory_order_relaxed);
-    d.neuralEngine = neuralStatus();
     d.muscriptorEngine = transcriberStatus();
     std::lock_guard<std::mutex> l(mutex_);
     d.host = host_;
@@ -100,12 +98,11 @@ std::string formatReport(const DiagnosticsSnapshot& d) {
              "UI: %.0f fps, frame %.2f ms\n"
              "Last MIDI file: %s\n"
              "Last error: %s\n"
-             "Neural engine: %s\n"
-             "MuScriptor engine: %s\n",
+             "Transcription model: %s\n",
              TTR_VERSION_STRING, TTR_BUILD_HASH, d.instanceId, d.host.empty() ? "unknown" : d.host.c_str(), d.sampleRate, d.lastBlock, d.maxBlock,
              d.channels, d.isOffline ? "offline" : "realtime", d.isProcessing ? "on" : "off", d.dspAvgPercent, d.dspPeakPercent,
              (unsigned long long)d.blocks, (unsigned long long)d.overruns, d.workerDelayMs, d.recordedSeconds, d.captureMegabytes, d.uiFps, d.uiFrameMs,
-             d.lastMidiPath.empty() ? "-" : d.lastMidiPath.c_str(), d.lastError.empty() ? "-" : d.lastError.c_str(), d.neuralEngine.empty() ? "-" : d.neuralEngine.c_str(),
+             d.lastMidiPath.empty() ? "-" : d.lastMidiPath.c_str(), d.lastError.empty() ? "-" : d.lastError.c_str(),
              d.muscriptorEngine.empty() ? "-" : d.muscriptorEngine.c_str());
     return text;
 }

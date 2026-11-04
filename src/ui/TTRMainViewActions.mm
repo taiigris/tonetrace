@@ -1,147 +1,274 @@
-// Button actions, status line and the crosshair info of the main view.
-#import "analysis/KeyEstimator.h"
-#import "core/NoteEdit.h"
+// What the controls do: open / drop a song, record, transport, MIDI export, zoom and scroll, the instrument strips.
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+
+#include <algorithm>
+#include <cmath>
+#include <set>
+
+#include "core/Instruments.h"
+#include "core/Logger.h"
+#include "core/SongImport.h"
 #import "ui/TTRMainViewInternal.h"
 #import "ui/TTRTheme.h"
 
-static const double kSpeedSteps[] = {0.25, 0.5, 1.0, 2.0, 4.0, 8.0};
+static const double kWheelZoomStep = 0.01, kRowZoomStep = 0.005;
 
 @implementation TTRMainView_v1 (Actions)
 
-- (void)toggleRecord {
-    const BOOL on = _kernel->param(ttr::kParamRecord) >= 0.5f;
-    if (!on) { [self editParam:ttr::kParamPreview value:0.0f]; _fitZoom = YES; }  // never preview while capturing; the next recording is fitted again
-    [self editParam:ttr::kParamRecord value:on ? 0.0f : 1.0f];
-    [self refreshNow];
+- (void)setParam:(int)paramId value:(float)value {
+    _bridge->beginEdit(paramId);
+    _bridge->setParameter(paramId, value);
+    _bridge->endEdit(paramId);
 }
 
-- (void)togglePreview {
-    if (_kernel->status() != ttr::KernelStatus::Idle) return;
-    [self editParam:ttr::kParamPreview value:_kernel->previewing() ? 0.0f : 1.0f];
-    [self refreshNow];
-}
+// ------------------------------------------------------------ song and recording
 
-// Next / previous entry of the speed ladder (1x = 100 px per second), counted from the current zoom (also from "Fit").
-- (void)stepSpeed:(int)direction {
-    const double current = _vp->pxPerSec / ttr::kBasePixelsPerSecond;
-    double target = current;
-    if (direction > 0) { for (double s : kSpeedSteps) if (s > current * 1.001) { target = s; break; } }
-    else { for (int i = int(sizeof kSpeedSteps / sizeof kSpeedSteps[0]) - 1; i >= 0; --i) if (kSpeedSteps[i] < current * 0.999) { target = kSpeedSteps[i]; break; } }
-    if (target == current) return;
-    const double anchorSec = _vp->timeForX(_map.bounds.size.width / 2);  // zoom around the middle of the map
-    _fitZoom = NO;
-    [self editParam:ttr::kParamSpeed value:float(target)];
-    _vp->pxPerSec = ttr::kBasePixelsPerSecond * target;
-    _vp->scrollSec = anchorSec - _map.bounds.size.width / 2 / _vp->pxPerSec;
-    [self refreshNow];
-}
-
-- (void)performReset {
-    _kernel->resetAll();
-    _fitZoom = YES;
-    _vp->scrollSec = 0.0;
-    [self showMessage:@"Recording and notes cleared - Undo brings them back"];
-    [self refreshNow];
-}
-
-- (void)resetClicked {
-    NSAlert* alert = [[NSAlert alloc] init];
-    alert.messageText = @"Delete the recording and all notes?";
-    alert.informativeText = @"Undo (Cmd+Z) brings them back as long as you have not closed the project.";
-    [alert addButtonWithTitle:@"Delete"];
-    [alert addButtonWithTitle:@"Cancel"];
-    __weak TTRMainView_v1* weak = self;
-    if (self.window) [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse r) { if (r == NSAlertFirstButtonReturn) [weak performReset]; }];
-    else if ([alert runModal] == NSAlertFirstButtonReturn) [self performReset];
-}
-
-// Quick Grab runs on a background thread; the result arrives as a notice. A second click cancels it.
-- (void)grabClicked {
-    if (_kernel->quickGrabRunning()) {
-        const BOOL isImport = _kernel->songImportRunning();
-        _kernel->requestCancelQuickGrab();  // returns at once; the task stops at its next check
-        [self showMessage:isImport ? @"Song import cancelled" : @"Quick Grab cancelled"];
-    } else if (!_kernel->startQuickGrab()) {
-        [self showMessage:@"Quick Grab needs a finished recording"];
+- (void)openSongPanel {
+    NSOpenPanel* panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    panel.message = @"Choose a song - every instrument is transcribed, drums included";
+    if (@available(macOS 11.0, *)) {
+        NSMutableArray<UTType*>* types = [NSMutableArray array];
+        for (const std::string& ext : ttr::songFileExtensions())
+            if (UTType* type = [UTType typeWithFilenameExtension:[NSString stringWithUTF8String:ext.c_str()]]) [types addObject:type];
+        panel.allowedContentTypes = types;
     }
+    __weak TTRMainView_v1* weakSelf = self;
+    void (^finish)(NSModalResponse) = ^(NSModalResponse response) {
+        if (response == NSModalResponseOK && panel.URL.path) [weakSelf importSongAtPath:panel.URL.path];
+    };
+    if (self.window) [panel beginSheetModalForWindow:self.window completionHandler:finish];
+    else finish([panel runModal]);
+}
+
+- (void)importSongAtPath:(NSString*)path {
+    if (_kernel->isRecording()) {
+        [self showMessage:@"Stop the recording first"];
+        return;
+    }
+    if (!_kernel->loadSong(path.UTF8String)) {
+        [self showMessage:@"Not a song file - use wav, aiff, mp3, m4a, flac or caf"];
+        return;
+    }
+    [self showMessage:[NSString stringWithFormat:@"Loading %@ - you can play it as soon as the waveform appears", path.lastPathComponent]];
     [self refreshNow];
 }
 
-// ------------------------------------------------------------ crosshair info + status
-
-static NSString* formatPosition(double t) {
-    const int minutes = int(t) / 60;
-    return [NSString stringWithFormat:@"%d:%05.2f", minutes, t - minutes * 60.0];
-}
-
-static const float kTuningStepCents = 5.0f;
-
-- (NSString*)tuningText {
-    bool reliable = false;
-    _kernel->detectedTuningCents(&reliable);
-    const double offset = _kernel->tuningOffsetCents();
-    if (!reliable && fabs(offset) < 0.5) return @"–";
-    const long rounded = lround(offset);
-    return rounded == 0 ? @"0 ct" : [NSString stringWithFormat:@"%@%ld ct", rounded < 0 ? @"\u2212" : @"+", labs(rounded)];
-}
-
-// Kernel and editor state (UiSettings) both follow the line view; the editor state survives closing the window.
-- (void)lineViewChanged:(ttr::LineView)view {
-    _kernel->setLineView(view);
-    ttr::UiSettings ui = _bridge->uiSettings();
-    ttr::storeLineView(_kernel->lineView(), &ui);
-    _bridge->storeUiSettings(ui);
+- (void)toggleRecord {
+    const BOOL recording = _kernel->param(ttr::kParamRecord) >= 0.5f;
+    if (!recording) _kernel->pause();
+    [self setParam:ttr::kParamRecord value:recording ? 0.0f : 1.0f];
+    [self showMessage:recording ? @"Recording stopped - transcribing it now" : @"Recording - play the track in your DAW, press ● again to stop"];
     [self refreshNow];
 }
 
-// The waveform lane is part of the editor state only (not a host parameter).
-- (void)toggleWave {
-    ttr::UiSettings ui = _bridge->uiSettings();
-    ui.showWave = !ui.showWave;
-    _bridge->storeUiSettings(ui);
-    [self applyWaveVisibility:ui.showWave];
+- (void)togglePlay {
+    if (!_kernel->document()) {
+        [self showMessage:@"Load a song first"];
+        return;
+    }
+    _kernel->togglePlay();
+    [self refreshNow];
 }
 
-- (void)applyWaveVisibility:(BOOL)visible {
-    _showWave = visible;
-    _waveButton.isOn = visible;
+- (void)rewind {
+    _kernel->seek(0.0);
+    if (!_tl->isFit) _tl->scrollSec = 0.0;
+    [self refreshNow];
+}
+
+- (void)clearSong {
+    _kernel->clearDocument();
+    [self showMessage:@"Song removed"];
+    [self refreshNow];
+}
+
+- (void)seekTo:(double)sec {
+    _kernel->seek(sec);
+    [self refreshNow];
+}
+
+// ------------------------------------------------------------ MIDI export
+
+- (void)reportExportError:(NSString*)text {
+    _kernel->diagnostics().setLastError(text.UTF8String);
+    ttr::logError(_kernel->instanceId(), "MIDI export: %s", text.UTF8String);
+    [self showBanner:text level:ttr::NoticeLevel::Error];
+}
+
+- (NSString*)exportSummary {
+    const ttr::DocumentPtr doc = _kernel->document();
+    if (!doc) return @"";
+    const ttr::MixerState mix = _kernel->mixer();
+    int tracks = 0, notes = 0;
+    for (const ttr::InstrumentSummary& s : ttr::instrumentsIn(doc->notes))
+        if (mix.isAudible(s.program)) { ++tracks; notes += s.noteCount; }
+    return [NSString stringWithFormat:@"%d notes in %d instrument track%s", notes, tracks, tracks == 1 ? "" : "s"];
+}
+
+// Same name as an existing file gets " 2", " 3", ... so a file the DAW still holds open is never overwritten.
+static NSURL* uniqueFileURL(NSURL* dir, NSString* fileName) {
+    NSString* base = fileName.stringByDeletingPathExtension;
+    NSURL* url = [dir URLByAppendingPathComponent:fileName];
+    for (int n = 2; [NSFileManager.defaultManager fileExistsAtPath:url.path] && n < 1000; ++n)
+        url = [dir URLByAppendingPathComponent:[NSString stringWithFormat:@"%@ %d.mid", base, n]];
+    return url;
+}
+
+- (NSString*)midiFileName {
+    return [[NSString stringWithUTF8String:_kernel->midiFileName().c_str()] stringByReplacingOccurrencesOfString:@"/" withString:@"-"];
+}
+
+- (NSURL*)writeMidiToMusicFolder {
+    const std::vector<uint8_t> bytes = _kernel->buildMidi();
+    const ttr::DocumentPtr doc = _kernel->document();
+    if (!doc || doc->notes.empty() || bytes.empty()) {
+        [self showMessage:@"No notes to export yet"];
+        return nil;
+    }
+    NSURL* music = [NSFileManager.defaultManager URLsForDirectory:NSMusicDirectory inDomains:NSUserDomainMask].firstObject;
+    NSURL* dir = [music URLByAppendingPathComponent:@"Tonetrace" isDirectory:YES];
+    NSError* error = nil;
+    if (!dir || ![NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:&error]) {
+        [self reportExportError:[NSString stringWithFormat:@"The MIDI file could not be written: cannot create ~/Music/Tonetrace (%@)",
+                                                           error.localizedDescription ?: @"unknown error"]];
+        return nil;
+    }
+    NSURL* url = uniqueFileURL(dir, [self midiFileName]);
+    if (![[NSData dataWithBytes:bytes.data() length:bytes.size()] writeToURL:url options:NSDataWritingAtomic error:&error]) {
+        [self reportExportError:[NSString stringWithFormat:@"The MIDI file could not be written: %@", error.localizedDescription]];
+        return nil;
+    }
+    _kernel->diagnostics().setLastMidiPath(url.path.UTF8String);
+    ttr::logInfo(_kernel->instanceId(), "MIDI export: %s", url.path.UTF8String);
+    [self showMessage:[NSString stringWithFormat:@"%@ - drop it into the arrangement for one MIDI track per instrument", [self exportSummary]]];
+    return url;
+}
+
+- (void)exportMidiWithPanel {
+    const ttr::DocumentPtr doc = _kernel->document();
+    if (!doc || doc->notes.empty()) { [self showMessage:@"No notes to export yet"]; return; }
+    NSSavePanel* panel = [NSSavePanel savePanel];
+    if (@available(macOS 11.0, *)) {
+        if (UTType* midi = [UTType typeWithFilenameExtension:@"mid"]) panel.allowedContentTypes = @[ midi ];
+    }
+    panel.nameFieldStringValue = [self midiFileName];
+    const std::vector<uint8_t> bytes = _kernel->buildMidi();
+    NSData* data = [NSData dataWithBytes:bytes.data() length:bytes.size()];
+    NSString* summary = [self exportSummary];
+    __weak TTRMainView_v1* weakSelf = self;
+    auto kernel = _kernel;
+    void (^finish)(NSModalResponse) = ^(NSModalResponse response) {
+        if (response != NSModalResponseOK || !panel.URL) return;
+        NSError* error = nil;
+        if ([data writeToURL:panel.URL options:NSDataWritingAtomic error:&error]) {
+            kernel->diagnostics().setLastMidiPath(panel.URL.path.UTF8String);
+            ttr::logInfo(kernel->instanceId(), "MIDI saved: %s", panel.URL.path.UTF8String);
+            [weakSelf showMessage:[NSString stringWithFormat:@"Saved %@ (%@)", panel.URL.lastPathComponent, summary]];
+        } else {
+            [weakSelf reportExportError:[NSString stringWithFormat:@"The MIDI file could not be saved: %@", error.localizedDescription]];
+        }
+    };
+    if (self.window) [panel beginSheetModalForWindow:self.window completionHandler:finish];
+    else finish([panel runModal]);
+}
+
+// ------------------------------------------------------------ zoom and scroll
+
+- (CGFloat)noteAreaWidth { return _roll.bounds.size.width - kTTRKeyboardWidth; }
+
+// Zooms time so that the moment under `x` (note-area pixels; < 0: the centre) stays where it is.
+- (void)zoomTo:(double)pxPerSec aroundX:(CGFloat)x {
+    const CGFloat width = [self noteAreaWidth];
+    if (width <= 0) return;
+    const double fitPx = _tl->contentSec > 0.0 ? width / _tl->contentSec : ttr::kMinPixelsPerSecond;
+    const double target = std::clamp(pxPerSec, std::min(fitPx, ttr::kMinPixelsPerSecond), ttr::kMaxPixelsPerSecond);
+    const CGFloat anchor = x < 0 ? width / 2 : x;
+    const double anchorSec = _tl->timeForX(anchor);
+    _tl->pxPerSec = target;
+    _tl->scrollSec = anchorSec - anchor / target;
+    _tl->isFit = target <= fitPx * 1.0001;
+    [self refreshNow];
+}
+
+- (void)handleWheel:(NSEvent*)event noteAreaX:(CGFloat)x {
+    const NSEventModifierFlags flags = event.modifierFlags;
+    const double dy = event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1.0 : 10.0);
+    const double dx = event.scrollingDeltaX * (event.hasPreciseScrollingDeltas ? 1.0 : 10.0);
+    if (flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) {
+        [self zoomTo:_tl->pxPerSec * std::exp(dy * kWheelZoomStep) aroundX:x];
+        return;
+    }
+    if (flags & NSEventModifierFlagOption) {
+        _tl->rowH = std::clamp(_tl->rowH * std::exp(dy * kRowZoomStep), ttr::kMinRowHeight, ttr::kMaxRowHeight);
+        [self refreshNow];
+        return;
+    }
+    const double timeDelta = (flags & NSEventModifierFlagShift) ? dy : dx;
+    if (timeDelta != 0.0) {
+        _tl->isFit = false;
+        _tl->scrollSec -= timeDelta / _tl->pxPerSec;
+    }
+    if (!(flags & NSEventModifierFlagShift)) _tl->scrollY -= dy;
+    [self refreshNow];
+}
+
+- (void)handleMagnify:(NSEvent*)event noteAreaX:(CGFloat)x { [self zoomTo:_tl->pxPerSec * (1.0 + event.magnification) aroundX:x]; }
+
+// The sidebar scrolls its strips with the wheel.
+- (void)scrollWheel:(NSEvent*)event {
+    const NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
+    if (p.x >= kTTRSidebarWidth) { [super scrollWheel:event]; return; }
+    _stripScroll -= event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1.0 : 10.0);
     [self layoutControls];
-    self.needsDisplay = YES;
-    [self refreshNow];
-}
-- (void)nudgeTuning:(int)direction {
-    ttr::LineView view = _kernel->lineView();
-    view.trimCents = std::clamp(view.trimCents + float(direction) * kTuningStepCents, -ttr::kMaxTrimCents, ttr::kMaxTrimCents);
-    [self lineViewChanged:view];
 }
 
-- (NSArray<NSString*>*)infoLines {
-    if (!_vp->hasCursor) return @[ @"Note –", @"Move over the map", @"" ];
-    const int pitch = std::clamp(int(std::lround(_vp->cursorPitch)), ttr::kMinNote, ttr::kMaxNote);
-    const ttr::TimeGrid grid = _kernel->timeGrid();
-    const double t = MAX(0.0, _vp->cursorSec), beat = grid.startPpq + t * grid.beatsPerSec();
-    const long bar = long(floor(beat / 4.0)) + 1;
-    const int beatInBar = int(floor(fmod(fmod(beat, 4.0) + 4.0, 4.0))) + 1;
-    return @[ [NSString stringWithFormat:@"Note %@ · %.1f Hz", TTRNoteName(pitch), TTRPitchToHz(pitch)],
-              [NSString stringWithFormat:@"Cursor %.1f Hz", TTRPitchToHz(_vp->cursorPitch)],
-              [NSString stringWithFormat:@"%@ · Bar %ld.%d", formatPosition(t), bar, beatInBar] ];
+// ------------------------------------------------------------ instrument strips
+
+- (void)rebuildStripsIfNeeded {
+    std::set<int> wanted;
+    if (_doc)
+        for (const ttr::InstrumentSummary& s : ttr::instrumentsIn(_doc->notes)) wanted.insert(s.program);
+    std::set<int> shown;
+    for (const auto& entry : _stripByProgram) shown.insert(entry.first);
+    if (wanted == shown) return;
+    __weak TTRMainView_v1* weak = self;
+    auto kernel = _kernel;
+    for (auto it = _stripByProgram.begin(); it != _stripByProgram.end();) {
+        if (wanted.count(it->first)) { ++it; continue; }
+        [it->second removeFromSuperview];
+        it = _stripByProgram.erase(it);
+    }
+    for (int program : wanted) {
+        if (_stripByProgram.count(program)) continue;
+        TTRInstrumentStrip_v1* strip = [[TTRInstrumentStrip_v1 alloc] initWithProgram:program];
+        strip.onMixChange = ^(int p, ttr::InstrumentMix mix) {
+            kernel->setInstrumentMix(p, mix);
+            [weak refreshNow];
+        };
+        [_strips addSubview:strip];
+        _stripByProgram[program] = strip;
+    }
+    [self layoutControls];
 }
 
-- (NSString*)statusLineForSnapshot:(const ttr::SnapshotPtr&)snap status:(ttr::KernelStatus)status {
-    if (_transientMessage && CACurrentMediaTime() < _transientUntil) return _transientMessage;
-    if (_kernel->songImportRunning()) return [self songStatusLine];
-    if (_kernel->quickGrabRunning()) return [NSString stringWithFormat:@"Quick Grab %.0f %% – click Cancel to stop", _kernel->quickGrabProgress() * 100.0f];
-    if (status == ttr::KernelStatus::Recording) return [NSString stringWithFormat:@"Recording %d:%02d – play your sample, press the red button to stop", int(_kernel->recordedSeconds()) / 60, int(_kernel->recordedSeconds()) % 60];
-    if (status == ttr::KernelStatus::Analysing) return @"Analysing…";
-    if (_hoverHelp.length > 0) return _hoverHelp;
-    const int notes = snap ? int(snap->notes.size()) : 0;
-    if (!snap || (!snap->hasRecording() && notes == 0)) return @"Press Record, then play your sample in your DAW";
-    NSMutableString* s = [NSMutableString string];
-    const int selected = snap ? ttr::selectedCount(snap->notes) : 0;
-    if (selected > 0) [s appendFormat:@"%d selected", selected];
-    if (_kernel->previewing()) [s appendString:s.length ? @" · Preview" : @"Preview"];
-    if (snap && snap->hasRecording() && !snap->audio) [s appendString:s.length ? @" · notes only (recording too long to store)" : @"Notes only (recording too long to store)"];
-    return s;
+- (void)updateStrips {
+    if (!_doc || _stripByProgram.empty()) return;
+    const ttr::MixerState mix = _kernel->mixer();
+    for (const ttr::InstrumentSummary& s : ttr::instrumentsIn(_doc->notes)) {
+        const auto it = _stripByProgram.find(s.program);
+        if (it == _stripByProgram.end()) continue;
+        TTRInstrumentStrip_v1* strip = it->second;
+        int lo = 0, hi = 0;
+        if (s.program == ttr::kDrumProgram) strip.info = [NSString stringWithFormat:@"%d hits · kit map", s.noteCount];
+        else if (ttr::pitchRangeOf(_doc->notes, s.program, &lo, &hi))
+            strip.info = [NSString stringWithFormat:@"%d notes · %@-%@", s.noteCount, TTRNoteName(lo), TTRNoteName(hi)];
+        [strip setMix:mix.get(s.program)];
+        strip.isAudible = mix.isAudible(s.program);
+        [strip setLevel:_kernel->instrumentLevel(s.program)];
+    }
 }
 
 @end

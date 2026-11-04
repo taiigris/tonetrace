@@ -9,12 +9,10 @@
 #include "pluginterfaces/vst/ivstattributes.h"
 #include "pluginterfaces/vst/ivstmessage.h"
 #include "public.sdk/source/vst/vstparameters.h"
-#include "core/NoteEdit.h"
 #include "state/StateCodec.h"
 #include "core/Logger.h"
 #include "analysis/ml/AudioFileDecoder.h"
 #include "analysis/ml/MuScriptorTranscriber.h"
-#include "analysis/ml/NeuralTranscriber.h"
 #include "vst3/StreamIo.h"
 #include "vst3/TonetraceIds.h"
 #include "vst3/TonetraceParameter.h"
@@ -42,7 +40,6 @@ public:
     void requestResize(int w, int h) override { if (resize_) resize_(w, h); }
     UiSettings uiSettings() const override { return controller_->uiSettings(); }
     void storeUiSettings(const UiSettings& settings) override { controller_->storeUiSettings(settings); }
-    void setSyncToHost(bool on) override { controller_->uiSetSyncToHost(on); }
 
 private:
     IPtr<TonetraceController> controller_;
@@ -64,22 +61,9 @@ void TonetraceController::addParameters() {
         TChar title[128];
         UString128(spec.name).copyTo(title, 128);
         const ParamValue defaultNormalized = toNormalized(id, spec.defaultValue);
-        if (spec.kind == ParamKind::Indexed) {  // Snap
-            auto* list = new StringListParameter(title, ParamID(id));
-            for (int i = 0; i < kNumSnapModes; ++i) {
-                TChar label[128];
-                UString128(snapName(i)).copyTo(label, 128);
-                list->appendString(label);
-            }
-            list->getInfo().defaultNormalizedValue = defaultNormalized;
-            list->getInfo().flags = (list->getInfo().flags & ~ParameterInfo::kCanAutomate) | viewFlags(id);
-            list->setNormalized(defaultNormalized);
-            parameters.addParameter(list);
-        } else if (spec.kind == ParamKind::Boolean) {
+        if (spec.kind == ParamKind::Boolean) {
             const int32 flags = id == kParamBypass ? kBypassFlags : viewFlags(id);
             parameters.addParameter(new ToggleParameter(title, ParamID(id), defaultNormalized, flags));
-        } else if (id == kParamSpeed) {
-            parameters.addParameter(new RangeParameter(title, ParamID(id), STR16("x"), spec.minValue, spec.maxValue, spec.defaultValue, 0, viewFlags(id)));
         } else {
             parameters.addParameter(new PercentParameter(title, ParamID(id), defaultNormalized, viewFlags(id)));
         }
@@ -87,9 +71,8 @@ void TonetraceController::addParameters() {
 }
 
 tresult PLUGIN_API TonetraceController::initialize(FUnknown* context) {
-    installCoreMLLoader();      // only registers the loader; the model loads on the first Neural Quick Grab
-    installAudioFileDecoder();  // 4.7: "Load Song" / dropping an audio file on the editor
-    installMuScriptorLoader();  // same; the model downloads when the engine is picked or on the first MuScriptor grab
+    installAudioFileDecoder();  // song files (open button, drop on the editor)
+    installMuScriptorLoader();  // registers the model loader; the model downloads on first use
     const tresult result = EditController::initialize(context);
     if (result != kResultOk) return result;
     addParameters();
@@ -101,7 +84,7 @@ tresult PLUGIN_API TonetraceController::terminate() {
     return EditController::terminate();
 }
 
-// Processor state (also the v3 format): sync the controller's parameters and the view settings with it.
+// Processor state: sync the controller's parameters with it.
 tresult PLUGIN_API TonetraceController::setComponentState(IBStream* state) {
     if (!state) return kResultFalse;
     std::vector<uint8_t> bytes;
@@ -112,16 +95,10 @@ tresult PLUGIN_API TonetraceController::setComponentState(IBStream* state) {
         return kResultFalse;
     }
     for (int id = 0; id < kNumParams; ++id) EditController::setParamNormalized(ParamID(id), toNormalized(id, decoded.params[size_t(id)]));
-    std::lock_guard<std::mutex> lock(uiMutex_);
-    const UiSettings fromState = uiSettingsFromParams(decoded.params, decoded.syncToHost);
-    UiSettings merged = ui_;  // keep the window and viewport of an editor state that was loaded before
-    merged.gain = fromState.gain; merged.range = fromState.range; merged.speed = fromState.speed; merged.quickGrab = fromState.quickGrab;
-    merged.snap = fromState.snap; merged.hideDrums = fromState.hideDrums; merged.magnet = fromState.magnet; merged.syncToHost = fromState.syncToHost;
-    ui_ = merged;
     return kResultOk;
 }
 
-// Editor state: view settings, zoom / scroll and the window size (never automation, never audio data).
+// Editor state: zoom / scroll and the window size (never automation, never audio data).
 tresult PLUGIN_API TonetraceController::getState(IBStream* state) {
     if (!state) return kResultFalse;
     return writeAll(state, encodeUiSettings(uiSettings())) ? kResultOk : kResultFalse;
@@ -136,62 +113,19 @@ tresult PLUGIN_API TonetraceController::setState(IBStream* state) {
         logWarn(kernel_ ? kernel_->instanceId() : 0, "controller: editor state not usable: %s", reason.empty() ? "stream error" : reason.c_str());
         return kResultFalse;
     }
-    {
-        std::lock_guard<std::mutex> lock(uiMutex_);
-        ui_ = loaded;
-        hasLoadedUi_ = true;
-    }
-    ParamValues params = defaultParams();
-    applyViewParams(loaded, &params);
-    for (int id = 0; id < kNumParams; ++id)
-        if (!isHostVisible(id)) EditController::setParamNormalized(ParamID(id), toNormalized(id, params[size_t(id)]));
-    applyToKernel();
+    std::lock_guard<std::mutex> lock(uiMutex_);
+    ui_ = loaded;
     return kResultOk;
 }
 
-void TonetraceController::applyToKernel() {
-    UiSettings s;
-    {
-        std::lock_guard<std::mutex> lock(uiMutex_);
-        if (!hasLoadedUi_) return;
-        s = ui_;
-    }
-    if (!kernel_) return;  // applied when the processor hands over its kernel
-    ParamValues params = kernel_->allParams();
-    applyViewParams(s, &params);
-    for (int id = 0; id < kNumParams; ++id)
-        if (!isHostVisible(id)) kernel_->setParam(id, params[size_t(id)]);
-    kernel_->setSyncToHost(s.syncToHost);
-    kernel_->setLineView(lineViewOf(s));
-}
-
-// The view settings follow the live parameter values; window and viewport are what the editor stored last.
 UiSettings TonetraceController::uiSettings() {
-    UiSettings s;
-    {
-        std::lock_guard<std::mutex> lock(uiMutex_);
-        s = ui_;
-    }
-    s.gain = toPlain(kParamGain, getParamNormalized(kParamGain));
-    s.range = toPlain(kParamRange, getParamNormalized(kParamRange));
-    s.speed = toPlain(kParamSpeed, getParamNormalized(kParamSpeed));
-    s.quickGrab = toPlain(kParamQuickGrab, getParamNormalized(kParamQuickGrab));
-    s.snap = int(std::lround(toPlain(kParamSnap, getParamNormalized(kParamSnap))));
-    s.hideDrums = getParamNormalized(kParamHideDrums) >= 0.5;
-    s.magnet = getParamNormalized(kParamMagnet) >= 0.5;
-    if (kernel_) s.syncToHost = kernel_->syncToHost();
-    return sanitized(s);
+    std::lock_guard<std::mutex> lock(uiMutex_);
+    return sanitized(ui_);
 }
 
 void TonetraceController::storeUiSettings(const UiSettings& settings) {
     std::lock_guard<std::mutex> lock(uiMutex_);
     ui_ = sanitized(settings);
-}
-
-void TonetraceController::uiSetSyncToHost(bool on) {
-    if (kernel_) kernel_->setSyncToHost(on);
-    std::lock_guard<std::mutex> lock(uiMutex_);
-    ui_.syncToHost = on;
 }
 
 tresult PLUGIN_API TonetraceController::setParamNormalized(ParamID tag, ParamValue value) {
@@ -206,7 +140,7 @@ void TonetraceController::uiSetParameter(int paramId, float plainValue) {
     if (paramId < 0 || paramId >= kNumParams) return;
     const ParamValue normalized = toNormalized(paramId, plainValue);
     setParamNormalized(ParamID(paramId), normalized);
-    if (isHostVisible(paramId)) performEdit(ParamID(paramId), normalized);  // view settings never reach the host
+    performEdit(ParamID(paramId), normalized);
 }
 
 IPlugView* PLUGIN_API TonetraceController::createView(FIDString name) {
@@ -215,8 +149,7 @@ IPlugView* PLUGIN_API TonetraceController::createView(FIDString name) {
     IPtr<TonetraceController> self(this);
     auto* view = new TonetraceView();
     const UiSettings ui = uiSettings();
-    const bool isLegacyDefault = ui.width == kLegacyWindowWidth && ui.height == kLegacyWindowHeight;  // older states stored the old default size
-    view->setInitialSize(isLegacyDefault ? kDefaultWindowWidth : ui.width, isLegacyDefault ? kDefaultWindowHeight : ui.height);
+    view->setInitialSize(ui.width, ui.height);
     view->setBridge(std::make_shared<ControllerBridge>(self, kernel_, [view](int w, int h) { view->resizeFromPlugin(w, h); }));
     return view;
 }
@@ -239,7 +172,6 @@ tresult PLUGIN_API TonetraceController::notify(IMessage* message) {
         if (message->getAttributes()->getInt(kKernelAttr, raw) != kResultOk || raw == 0) return kResultFalse;
         std::unique_ptr<std::shared_ptr<TonetraceKernel>> handle(reinterpret_cast<std::shared_ptr<TonetraceKernel>*>(intptr_t(raw)));
         kernel_ = *handle;
-        applyToKernel();
         return kResultOk;
     }
     return EditController::notify(message);

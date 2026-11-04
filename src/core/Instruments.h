@@ -1,5 +1,4 @@
-// 4.7: instruments of a transcribed song. MuScriptor gives every note a GM program (or kDrumProgram); notes without one
-// (kNoProgram) are the user's own or come from Classic/Neural. Names, families (for the note colours) and the
+// Instruments of a transcribed song. MuScriptor gives every note a GM program (or kDrumProgram). Names, families (for the note colours) and the
 // per-instrument summary used by the export and the UI.
 #pragma once
 #include <string>
@@ -25,7 +24,11 @@ struct InstrumentSummary {
 std::vector<InstrumentSummary> instrumentsIn(const std::vector<NoteEvent>& notes);
 // True when any note carries an instrument (the export then writes one track per instrument).
 bool hasInstruments(const std::vector<NoteEvent>& notes);
-// The notes with the selection set to exactly those of `program` (a new vector, the input stays as it is).
-std::vector<NoteEvent> withInstrumentSelected(const std::vector<NoteEvent>& notes, int program);
+// Three-letter chip of the sidebar strip ("BAS", "DRM", "GTR").
+std::string instrumentAbbreviation(int program);
+// Lowest and highest pitch of the instrument's notes (false when it has none).
+bool pitchRangeOf(const std::vector<NoteEvent>& notes, int program, int* lowest, int* highest);
+// "C4", "F#2".
+std::string noteName(int pitch);
 
 }  // namespace ttr

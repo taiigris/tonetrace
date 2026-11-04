@@ -29,15 +29,12 @@ public:
     void uiEndEdit(int paramId) { if (isHostVisible(paramId)) endEdit(Steinberg::Vst::ParamID(paramId)); }
     UiSettings uiSettings();
     void storeUiSettings(const UiSettings& settings);
-    void uiSetSyncToHost(bool on);
 
 private:
     void addParameters();
-    void applyToKernel();  // view parameters and sync flag of a loaded editor state -> kernel
     std::shared_ptr<TonetraceKernel> kernel_;  // owned by the processor; null until the peers are connected
     mutable std::mutex uiMutex_;
-    UiSettings ui_;                  // window, viewport and the view settings as last stored / loaded
-    bool hasLoadedUi_ = false;       // a state was loaded (setState / setComponentState): apply it when the kernel arrives
+    UiSettings ui_;  // window and viewport as last stored / loaded
 };
 
 }  // namespace ttr

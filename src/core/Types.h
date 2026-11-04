@@ -1,6 +1,5 @@
-// Shared plain data types for Tonetrace (no platform dependencies).
+// Shared plain data types for Tonetrace 5 (no platform dependencies): notes, the song audio and the document.
 #pragma once
-#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -8,94 +7,70 @@
 
 namespace ttr {
 
-struct PitchLines;  // analysis/PitchLines.h
-
-constexpr int kMinNote = 24;   // C1: lowest row of the note map
+constexpr int kMinNote = 21;   // A0: lowest row of the piano roll
 constexpr int kMaxNote = 108;  // C8: highest row
 constexpr int kNumNotes = kMaxNote - kMinNote + 1;
 constexpr double kMaxRecordSeconds = 120.0;
 constexpr double kDefaultBpm = 120.0;
-constexpr int kPeaksPerSecond = 200;  // waveform overview resolution
-constexpr int kExportVelocity = 100;  // drawn notes carry no dynamics
-constexpr int kNoProgram = -1;      // a note without an instrument (drawn, Classic/Neural Quick Grab)
-constexpr int kDrumProgram = 128;   // MuScriptor drum hit: pitch is the GM percussion note
+constexpr int kPeaksPerSecond = 100;  // waveform overview resolution
+constexpr int kExportVelocity = 100;  // the model predicts no dynamics
+constexpr int kNoProgram = -1;        // a note without an instrument
+constexpr int kDrumProgram = 128;     // drum hit: pitch is the GM percussion note
 constexpr int kMaxProgram = 128;
 
 struct NoteEvent {
     int pitch = 60;
     double startSec = 0.0;
     double endSec = 0.0;
-    float strength = 1.0f;  // 0..1, only used by Quick Grab / key estimation
-    bool selected = false;
-    float tonality = 1.0f;  // Quick Grab segment filter: mean harmonic share of the note bins (0..1)
-    float sustain = 1.0f;   // Quick Grab segment filter: energy 2nd half / 1st half of the segment (0..2)
-    int program = kNoProgram;  // 4.7: instrument (GM program 0..127, kDrumProgram) from MuScriptor; one MIDI track each
+    int program = kNoProgram;  // GM program 0..127, kDrumProgram for drums
 };
 
-// Salience matrix: relative amplitude (0..1) per frame and note, after harmonic suppression (Quick Grab only).
-struct Salience {
-    double hopSec = 0.0;
-    int frames = 0;
-    double lengthSec = 0.0;
-    std::vector<float> values;  // frames * kNumNotes
-    float at(int frame, int noteIndex) const { return values[size_t(frame) * kNumNotes + noteIndex]; }
-};
-
-// Magnitude spectrogram of a recording: what the note map shows, plus the data for the drum filter.
-struct Spectrogram {
-    double hopSec = 0.0;
-    int frames = 0;
-    double lengthSec = 0.0;
-    float peak = 0.0f;            // largest value in `raw` (display reference)
-    std::vector<float> raw;       // frames * kNumNotes: note energies of the full spectrum
-    std::vector<float> harmonic;  // frames * kNumNotes: M_H * raw (harmonic part, "Hide drums")
-    std::vector<float> low;       // frames * 24: bass notes C1..B2 from long analysis windows (Quick Grab); not stored in states, empty after a restore
-    std::vector<float> percFrac;  // frames: percussive share (spectrum not explained by H), excess over local median
-    std::vector<float> flux;      // frames: positive spectral flux (onset strength), excess over local median
-    float rawAt(int f, int n) const { return raw[size_t(f) * kNumNotes + n]; }
-    float harmAt(int f, int n) const { return harmonic[size_t(f) * kNumNotes + n]; }
-};
-
-// Waveform overview: min/max pair per 1/kPeaksPerSecond.
+// Waveform overview: min/max pair per 1/kPeaksPerSecond (mono).
 struct WavePeaks {
     std::vector<float> minMax;  // 2 * count
     int count() const { return int(minMax.size() / 2); }
 };
 
-// The recorded audio kept for the preview (mono, decimated, 16 bit).
-struct AudioClip {
-    double sampleRate = 22050.0;
+// The audio the player plays: 16 bit, interleaved, any rate (a loaded song is 44.1 kHz stereo).
+struct SongAudio {
+    double sampleRate = 44100.0;
+    int channels = 2;
     std::vector<int16_t> samples;
+    size_t frames() const { return channels > 0 ? samples.size() / size_t(channels) : 0; }
+    double seconds() const { return sampleRate > 0.0 ? double(frames()) / sampleRate : 0.0; }
 };
 
-struct FilterSettings {
-    bool hideDrums = false;
-    float drumFilter = 0.6f;  // 0..1, scales the gate and segment-filter thresholds
+enum class TranscriptionPhase : int {
+    None = 0,      // nothing loaded, or a restored document whose notes are already complete
+    Loading = 1,   // decoding the file
+    Running = 2,   // the model works; notes arrive chunk by chunk
+    Done = 3,
+    Failed = 4,    // message says why (no model, download running, damaged file, ...)
+    Cancelled = 5,
 };
 
-struct KeyResult {
-    int root = -1;  // 0..11 (C..B), -1 = unknown
-    bool minor = false;
-    float score = 0.0f;
+struct Transcription {
+    TranscriptionPhase phase = TranscriptionPhase::None;
+    float progress = 0.0f;       // 0..1
+    double finalizedSec = 0.0;   // every note ending before this is known
+    std::string message;         // reason of a failure
+    bool isActive() const { return phase == TranscriptionPhase::Loading || phase == TranscriptionPhase::Running; }
 };
 
-// Immutable view of the whole document: drawn notes plus the recording they belong to.
-struct Snapshot {
-    std::vector<NoteEvent> notes;
-    std::shared_ptr<const Spectrogram> spectrogram;  // null before the first recording
+// Immutable view of the whole document. Replaced (never changed) on every update.
+struct Document {
+    std::string sourceName;  // "My Song.mp3" or "Recording"
+    std::string sourcePath;  // the file (empty for a recording); a restored song reloads its audio from here
+    bool isRecording = false;
+    std::shared_ptr<const SongAudio> audio;  // null while loading or when the file is gone
     std::shared_ptr<const WavePeaks> peaks;
-    std::shared_ptr<const AudioClip> audio;  // null when too long to be stored (preview then plays notes only)
-    std::shared_ptr<const PitchLines> lines;  // the thin lines of the note map; null until computed (restored states compute them in the background)
-    std::array<float, 12> chroma{};          // pitch-class energy of the recording (key estimate without notes)
-    KeyResult key;
+    std::vector<NoteEvent> notes;  // sorted by start
     double lengthSec = 0.0;
-    double bpm = kDefaultBpm;
-    double startPpq = 0.0;
-    std::string sourceName;  // 4.7: file name of an imported song (empty for a recording)
-    uint64_t version = 0;
-    bool hasRecording() const { return spectrogram != nullptr; }
+    Transcription transcription;
+    uint64_t id = 0;       // one per loaded song or recording; background jobs only update their own document
+    uint64_t version = 0;  // changes with every update
 };
 
-using SnapshotPtr = std::shared_ptr<const Snapshot>;
+using DocumentPtr = std::shared_ptr<const Document>;
 
 }  // namespace ttr

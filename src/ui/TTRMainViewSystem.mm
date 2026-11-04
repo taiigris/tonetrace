@@ -1,119 +1,88 @@
-// Main view: timer rate, hover help, notice banners, diagnostics panel, editor state.
-#import "core/NoteEdit.h"
-#import "ui/TTRMainViewInternal.h"
-#import "ui/TTRTheme.h"
+// Everything that is not a control: notices as banners, the refresh timer, the diagnostics panel and the About card,
+// and the editor state (zoom, scroll, follow) that the host stores with the project.
+#include <algorithm>
+#include <cmath>
 
-static const double kViewportEpsilon = 0.5, kFpsWindowSeconds = 1.0;
+#include "analysis/ml/MuScriptorEngine.h"
+#import "ui/TTRMainViewInternal.h"
 
 @implementation TTRMainView_v1 (System)
-
-// ------------------------------------------------------------ timer
-
-- (void)updateTimer {
-    if (!_isWindowVisible || !self.window) return;
-    const BOOL isActive = _kernel->status() != ttr::KernelStatus::Idle || _kernel->previewing() || _kernel->quickGrabRunning() || !_diag.hidden;
-    const double hz = isActive ? kTTRActiveHz : kTTRIdleHz;
-    if (_timer && hz == _tickHz) return;
-    [_timer invalidate];
-    __weak TTRMainView_v1* weak = self;
-    _timer = [NSTimer timerWithTimeInterval:1.0 / hz repeats:YES block:^(NSTimer*) { [weak refreshNow]; }];
-    [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
-    _tickHz = hz;
-}
-
-// ------------------------------------------------------------ edit buttons
-
-- (void)undoClicked { [_map undoEdit]; [self refreshNow]; }
-- (void)redoClicked { [_map redoEdit]; [self refreshNow]; }
-- (void)deleteClicked { [_map deleteSelectedNotes]; [self refreshNow]; }
-- (void)duplicateClicked { [_map duplicateSelectedNotes]; [self refreshNow]; }
-- (void)syncClicked {
-    _bridge->setSyncToHost(!_kernel->syncToHost());
-    [self showMessage:_kernel->syncToHost() ? @"Sync to host on: the preview follows the host's song position" : @"Sync to host off"];
-    [self refreshNow];
-}
-
-- (void)updateEditStates {
-    const ttr::SnapshotPtr snap = _kernel->snapshot();
-    const BOOL hasSelection = snap && ttr::selectedCount(snap->notes) > 0;
-    const BOOL busy = _kernel->status() != ttr::KernelStatus::Idle;
-    _undoButton.isEnabled = !busy && _kernel->canUndo();
-    _redoButton.isEnabled = !busy && _kernel->canRedo();
-    _deleteButton.isEnabled = hasSelection;
-    _duplicateButton.isEnabled = hasSelection;
-}
-
-// ------------------------------------------------------------ banners and diagnostics
 
 - (void)showBanner:(NSString*)text level:(ttr::NoticeLevel)level {
     [_banner showText:text level:level];
 }
 
 - (void)pollNotices {
-    ttr::Notice notice;
-    while (_kernel->diagnostics().popNotice(&notice)) [self showBanner:[NSString stringWithUTF8String:notice.text.c_str()] level:notice.level];
+    ttr::Notice n;
+    while (_kernel->diagnostics().popNotice(&n)) [self showBanner:[NSString stringWithUTF8String:n.text.c_str()] level:n.level];
+}
+
+// 30 Hz while something moves (playback, transcription, recording, a meter falling back), 5 Hz otherwise.
+- (void)updateTimer {
+    if (!_isWindowVisible) {
+        [_timer invalidate];
+        _timer = nil;
+        return;
+    }
+    const BOOL active = _kernel->isPlaying() || _kernel->isWorking() || _kernel->isRecording() || _kernel->masterLevel() > 1e-4f ||
+                        (_doc && _doc->transcription.isActive());
+    const double hz = active ? kTTRActiveHz : kTTRIdleHz;
+    if (_timer && hz == _tickHz) return;
+    [_timer invalidate];
+    _tickHz = hz;
+    __weak TTRMainView_v1* weak = self;
+    _timer = [NSTimer timerWithTimeInterval:1.0 / hz repeats:YES block:^(NSTimer*) { [weak refreshNow]; }];
+    [[NSRunLoop currentRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
 }
 
 - (void)toggleDiagnostics {
+    if (_about.isShowing) [_about dismiss];
     _diag.hidden = !_diag.hidden;
-    [self refreshNow];
+    [self updateDiagnostics];
 }
 
-- (void)openDiagnostics {
-    if (_diag.hidden) [self toggleDiagnostics];
-}
-
-- (void)openLogFolder {
-    [_diag openLogFolder];
-}
-
-- (void)showAbout {
-    [_about show];
-}
+- (void)showAbout { [_about show]; }
 
 - (void)updateDiagnostics {
     const CFTimeInterval now = CACurrentMediaTime();
-    if (now - _lastFpsTime >= kFpsWindowSeconds) {
-        _fps = double(_vp->drawCount - _lastDrawCount) / (now - _lastFpsTime);
-        _lastDrawCount = _vp->drawCount;
+    if (_lastFpsTime == 0) _lastFpsTime = now;
+    if (now - _lastFpsTime >= 1.0) {
+        _fps = double(_lastDrawCount) / (now - _lastFpsTime);
+        _lastDrawCount = 0;
         _lastFpsTime = now;
     }
     if (_diag.hidden) return;
     ttr::DiagnosticsSnapshot d = _kernel->diagnosticsSnapshot();
+    d.muscriptorEngine = ttr::transcriberStatus();
     d.uiFps = _fps;
-    d.uiFrameMs = _vp->frameMsAvg;
     [_diag updateWithSnapshot:d];
 }
 
-// ------------------------------------------------------------ editor state (zoom, scroll, view settings)
-
 - (void)restoreUiSettings {
-    const ttr::UiSettings ui = _bridge->uiSettings();
-    _vp->scrollSec = ui.scrollSec;
-    if (ui.scrollY >= 0.0) _vp->scrollY = ui.scrollY;
-    _kernel->setLineView(ttr::lineViewOf(ui));
-    _showWave = ui.showWave;
-    _waveButton.isOn = ui.showWave;
-    [self layoutControls];
-    _storedScrollSec = ui.scrollSec;
-    _storedScrollY = _vp->scrollY;
-    _storedSize = self.bounds.size;
+    const ttr::UiSettings s = _bridge->uiSettings();
+    _tl->isFit = s.pixelsPerSecond <= 0.0;
+    if (!_tl->isFit) _tl->pxPerSec = s.pixelsPerSecond;
+    _tl->rowH = s.rowHeight;
+    _tl->scrollSec = s.scrollSec;
+    _tl->follow = s.followPlayhead;
+    if (s.scrollY >= 0.0) _tl->scrollY = s.scrollY;
+    _storedUi = s;
+    _diag.hidden = YES;
 }
 
 - (void)storeUiSettingsIfChanged {
-    const NSSize size = self.bounds.size;
-    if (fabs(_vp->scrollSec - _storedScrollSec) < kViewportEpsilon / MAX(1.0, _vp->pxPerSec) && fabs(_vp->scrollY - _storedScrollY) < kViewportEpsilon &&
-        size.width == _storedSize.width && size.height == _storedSize.height)
-        return;
-    _storedScrollSec = _vp->scrollSec;
-    _storedScrollY = _vp->scrollY;
-    _storedSize = size;
-    ttr::UiSettings ui = _bridge->uiSettings();
-    ui.scrollSec = _vp->scrollSec;
-    ui.scrollY = _vp->scrollY;
-    ui.width = int(size.width);
-    ui.height = int(size.height);
-    _bridge->storeUiSettings(ui);
+    ttr::UiSettings s = _storedUi;
+    s.pixelsPerSecond = _tl->isFit ? 0.0 : _tl->pxPerSec;
+    s.rowHeight = _tl->rowH;
+    s.scrollSec = _tl->scrollSec;
+    s.scrollY = _tl->scrollY;
+    s.followPlayhead = _tl->follow;
+    s.width = int(std::lround(self.bounds.size.width));
+    s.height = int(std::lround(self.bounds.size.height));
+    s = ttr::sanitized(s);
+    if (s == _storedUi) return;
+    _storedUi = s;
+    _bridge->storeUiSettings(s);
 }
 
 @end

@@ -103,23 +103,27 @@ std::string pendingReason() {
     std::lock_guard<std::mutex> guard(d.mutex);
     if (d.task) {
         const double share = d.task.progress.fractionCompleted;
-        return "MuScriptor model downloading (" + std::to_string(int(share * 100.0)) + " % of 620 MB)";
+        return "model downloading (" + std::to_string(int(share * 100.0)) + " % of 620 MB)";
     }
-    return d.error.empty() ? "MuScriptor model not downloaded yet" : d.error;
+    return d.error.empty() ? "model not downloaded yet" : d.error;
 }
 
 class MuScriptorTranscriber final : public NoteTranscriber {
 public:
     explicit MuScriptorTranscriber(std::shared_ptr<msb::Model> model) : model_(std::move(model)) {}
-    bool transcribe(const std::vector<float>& audio, std::vector<TranscribedNote>* out, TaskControl* control, std::string* reason) override {
+    bool transcribe(const std::vector<float>& audio, const ChunkCallback& onChunk, TaskControl* control, std::string* reason) override {
         std::lock_guard<std::mutex> guard(mutex_);  // one transcription at a time per model (KV cache)
-        std::vector<msb::Note> notes;
+        std::vector<msb::Note> all;
         const auto cancel = [control] { return control && control->cancelled(); };
-        const auto progress = [control](float p) { if (control) control->report(p); };
-        if (!msb::transcribe(*model_, audio.data(), audio.size(), &notes, cancel, progress, reason)) return false;
-        out->clear();
-        for (const msb::Note& n : notes) out->push_back({n.onset, n.offset, n.pitch, n.isDrum, n.program});
-        return true;
+        TranscriptionChunk chunk;
+        const msb::UpdateCallback onUpdate = [&](float progress, double finalizedSec, const std::vector<msb::Note>& fresh) {
+            chunk.newNotes.clear();
+            for (const msb::Note& n : fresh) chunk.newNotes.push_back({n.onset, n.offset, n.pitch, n.isDrum, n.program});
+            chunk.finalizedSec = finalizedSec;
+            chunk.progress = progress;
+            if (onChunk) onChunk(chunk);
+        };
+        return msb::transcribe(*model_, audio.data(), audio.size(), &all, cancel, onUpdate, reason);
     }
 
 private:
@@ -161,10 +165,10 @@ void installMuScriptorLoader() {
     std::call_once(once, [] {
         setTranscriberLoader([](std::string* reason) { return loadTranscriber(reason); });
         setTranscriberPrefetch([]() -> std::string {
-            if (!msb::isSupported()) return "MuScriptor needs an Apple Silicon Mac - Quick Grab uses Classic";
+            if (!msb::isSupported()) return "Tonetrace needs an Apple Silicon Mac for the transcription";
             if (std::getenv(kMuScriptorModelEnv) || fileExists(muscriptorModelPath())) return {};
             startDownload();
-            return "MuScriptor: downloading the model (620 MB) in the background - Quick Grab uses Classic until it is ready";
+            return "Downloading the transcription model (620 MB) once - songs are transcribed as soon as it is ready";
         });
     });
 }

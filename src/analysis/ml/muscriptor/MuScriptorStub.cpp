@@ -12,7 +12,7 @@ std::shared_ptr<Model> load(const std::string&, std::string* reason) {
     return nullptr;
 }
 
-bool transcribe(Model&, const float*, size_t, std::vector<Note>*, const std::function<bool()>&, const std::function<void(float)>&, std::string* reason) {
+bool transcribe(Model&, const float*, size_t, std::vector<Note>*, const std::function<bool()>&, const UpdateCallback&, std::string* reason) {
     if (reason) *reason = "MuScriptor needs an Apple Silicon Mac";
     return false;
 }

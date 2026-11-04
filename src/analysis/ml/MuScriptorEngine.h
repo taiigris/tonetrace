@@ -1,5 +1,6 @@
-// Quick Grab with MuScriptor (multi-instrument transcription, drums included): interface, registry and the note conversion.
-// The core only knows this interface; the implementation (download, muscriptor.cpp) lives in MuScriptorTranscriber.mm (tonetrace_ml).
+// MuScriptor (multi-instrument transcription, drums included): the interface the core knows, the model registry and
+// the conversion of model notes into Tonetrace notes. The implementation (download, muscriptor.cpp) lives in
+// MuScriptorTranscriber.mm (tonetrace_ml); tests register a fake.
 #pragma once
 #include <functional>
 #include <memory>
@@ -20,39 +21,43 @@ struct TranscribedNote {
     int program = 0;                   // GM program the model decoded (kDrumProgram for a drum hit)
 };
 
+// What one chunk (5 s of audio) added. Each note is reported once and never changes.
+struct TranscriptionChunk {
+    std::vector<TranscribedNote> newNotes;
+    double finalizedSec = 0.0;  // every note ending before this is reported
+    float progress = 0.0f;      // 0..1
+};
+using ChunkCallback = std::function<void(const TranscriptionChunk& chunk)>;
+
 class NoteTranscriber {
 public:
     virtual ~NoteTranscriber() = default;
-    // 16 kHz mono in, every note out. False with a reason on failure or cancel.
-    virtual bool transcribe(const std::vector<float>& audio, std::vector<TranscribedNote>* out, TaskControl* control, std::string* reason) = 0;
+    // 16 kHz mono in; `onChunk` after every chunk. False with a reason on failure or cancel.
+    virtual bool transcribe(const std::vector<float>& audio16k, const ChunkCallback& onChunk, TaskControl* control, std::string* reason) = 0;
 };
 
-// Returns the transcriber, or null with a reason (e.g. "model downloading (35 %)"). Unlike the Basic Pitch loader it is asked
-// again on every Quick Grab until it succeeds, because the model may still be downloading.
+// Returns the transcriber, or null with a reason (e.g. "model downloading (35 %)"). Asked again on every song until it
+// succeeds, because the model may still be downloading.
 using TranscriberLoader = std::function<std::shared_ptr<NoteTranscriber>(std::string* reason)>;
 
 void setTranscriberLoader(TranscriberLoader loader);
 void setTranscriber(std::shared_ptr<NoteTranscriber> transcriber);
 std::shared_ptr<NoteTranscriber> noteTranscriber(std::string* reason = nullptr);
-// "not loaded yet", "ready" or the last reason it was unavailable (for the diagnostics report).
+// "not loaded yet", "ready" or the last reason it was unavailable (diagnostics, status bar).
 std::string transcriberStatus();
-// Non-blocking: lets the implementation start fetching the model early (when the user picks the engine). Returns a hint for
-// the user when something is happening in the background (e.g. "downloading the model"), empty otherwise.
+// Non-blocking: lets the implementation start fetching the model early. Returns a hint for the user when something
+// happens in the background (e.g. "downloading the model"), empty otherwise.
 void setTranscriberPrefetch(std::function<std::string()> prefetch);
 std::string prefetchTranscriber();
 
-// Model notes as Tonetrace notes: outside the note map dropped, drum hits (10 ms in the model) lengthened to a 1/16 note at
-// `bpm`, but never into the next hit of the same drum.
+// Model notes as Tonetrace notes: outside the piano roll dropped, drum hits (10 ms in the model) lengthened to a 1/16
+// note at `bpm` but never into the next hit of the same drum, every note with its instrument. Sorted by start.
 std::vector<NoteEvent> muscriptorNotes(const std::vector<TranscribedNote>& notes, double bpm);
 
-struct MuScriptorGrab {
-    bool ok = false;
-    std::string reason;
-    std::vector<NoteEvent> notes;
-};
-// The whole path for a document: stored recording -> 16 kHz -> transcriber -> notes. ok = false when anything is missing.
-MuScriptorGrab muscriptorGrabSnapshot(const Snapshot& snapshot, TaskControl* control);
-// 4.7: the same for any mono signal at `sampleRate` (a whole imported song, at full quality instead of the stored clip).
-MuScriptorGrab muscriptorTranscribe(const std::vector<float>& mono, double sampleRate, double bpm, TaskControl* control);
+// Streaming update of a whole-song transcription: all notes so far (converted), how far they are final, progress.
+using SongProgress = std::function<void(const std::vector<NoteEvent>& notes, double finalizedSec, float progress)>;
+// Runs the model on 16 kHz mono audio, calling `onProgress` after every chunk. False with a reason when the model is
+// missing, fails or the task is cancelled ("cancelled").
+bool transcribeSong(const std::vector<float>& audio16k, double bpm, TaskControl* control, const SongProgress& onProgress, std::string* reason);
 
 }  // namespace ttr
