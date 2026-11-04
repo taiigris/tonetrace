@@ -87,7 +87,7 @@ bool transcribe(Model& model, const float* samples, size_t count, std::vector<No
         }
         out->clear();
         out->reserve(notes->size());
-        for (const msl::Note& n : *notes) out->push_back({n.onset, n.offset, n.pitch, n.is_drum});
+        for (const msl::Note& n : *notes) out->push_back({n.onset, n.offset, n.pitch, n.is_drum, n.program});
         return true;
     } catch (const std::exception& e) {
         if (reason) *reason = std::string("the model failed: ") + e.what();

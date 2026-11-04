@@ -26,6 +26,7 @@
     TTRButton_v1 *_helpButton, *_viewButton, *_optionsButton;
     BOOL _samplerPending, _bridgeUp;  // a request waits for Live's answer / the heartbeat is fresh
     CFTimeInterval _bridgeChecked;
+    TTRButton_v1* _loadSongButton;  // 4.7: load a whole song file
     TTRButton_v1 *_undoButton, *_redoButton, *_deleteButton, *_duplicateButton, *_infoButton, *_syncButton;
     TTRPopoverView_v1* _options;
     id _outsideClickMonitor;      // closes the options popover on a click anywhere else
@@ -102,6 +103,14 @@ extern const double kTTRActiveHz, kTTRIdleHz;
 - (void)updateBridgeStatus;
 - (void)samplerClicked;
 - (void)sendSamplerRequest;
+@end
+
+// 4.7: whole-song import (Load Song button, an audio file dropped on the editor).
+@interface TTRMainView_v1 (Song)
+- (void)registerSongDrop;
+- (void)loadSongClicked;
+- (void)importSongAtPath:(NSString*)path;
+- (NSString*)songStatusLine;
 @end
 
 @interface TTRMainView_v1 (Export)

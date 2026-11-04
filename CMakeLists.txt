@@ -43,8 +43,8 @@ add_library(tonetrace_core STATIC
   src/midi/MidiFileWriter.cpp src/midi/ExportPlanner.cpp
   src/preview/PreviewSynth.cpp src/bridge/BridgeClient.cpp
   src/state/StateCodec.cpp src/state/UiSettings.cpp src/core/Logger.cpp src/core/Diagnostics.cpp
-  src/core/NoteEdit.cpp src/core/Snapshot.cpp
-  src/core/TonetraceKernel.cpp src/core/KernelModel.cpp src/core/KernelWorker.cpp src/core/KernelAudio.cpp)
+  src/core/NoteEdit.cpp src/core/Snapshot.cpp src/core/Instruments.cpp src/core/SongImport.cpp src/core/RecordingBuilder.cpp
+  src/core/TonetraceKernel.cpp src/core/KernelModel.cpp src/core/KernelWorker.cpp src/core/KernelAudio.cpp src/core/KernelSong.cpp)
 target_include_directories(tonetrace_core PUBLIC src ${CMAKE_BINARY_DIR}/generated)
 find_library(ACCELERATE Accelerate)
 target_link_libraries(tonetrace_core PUBLIC ${ACCELERATE})
@@ -76,9 +76,9 @@ add_custom_command(OUTPUT "${TONETRACE_MS_FAT}"
   DEPENDS muscriptor_arm64 tonetrace_msstub "${TONETRACE_MS_ARM64}" COMMENT "Joining the MuScriptor slices (arm64 engine, x86_64 stub)")
 add_custom_target(tonetrace_muscriptor_fat DEPENDS "${TONETRACE_MS_FAT}")
 
-add_library(tonetrace_ml STATIC src/analysis/ml/NeuralTranscriber.mm src/analysis/ml/MuScriptorTranscriber.mm)
+add_library(tonetrace_ml STATIC src/analysis/ml/NeuralTranscriber.mm src/analysis/ml/MuScriptorTranscriber.mm src/analysis/ml/AudioFileDecoder.mm)
 add_dependencies(tonetrace_ml tonetrace_muscriptor_fat)
-target_link_libraries(tonetrace_ml PUBLIC tonetrace_core ${COREML} "${TONETRACE_MS_FAT}" "-framework Foundation" "-framework Metal" "-framework MetalKit")
+target_link_libraries(tonetrace_ml PUBLIC tonetrace_core ${COREML} "${TONETRACE_MS_FAT}" "-framework Foundation" "-framework Metal" "-framework MetalKit" "-framework AudioToolbox")
 set_target_properties(tonetrace_ml PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set(TONETRACE_MODEL_SRC "${CMAKE_SOURCE_DIR}/assets/ml/nmp.mlpackage")
 set(TONETRACE_MODEL_OUT "${CMAKE_BINARY_DIR}/ml/nmp.mlmodelc")
@@ -116,7 +116,7 @@ find_library(QUARTZCORE QuartzCore)
 
 add_library(tonetrace_ui STATIC ${UI_SOURCES})
 target_include_directories(tonetrace_ui PUBLIC src)
-target_link_libraries(tonetrace_ui PUBLIC tonetrace_core ${APPKIT} ${FOUNDATION} ${QUARTZCORE} ${AUDIOTOOLBOX})
+target_link_libraries(tonetrace_ui PUBLIC tonetrace_core ${APPKIT} ${FOUNDATION} ${QUARTZCORE} ${AUDIOTOOLBOX} "-framework UniformTypeIdentifiers")
 set_target_properties(tonetrace_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ---- screenshot tool and UI interaction test (real view, synthetic events) ----

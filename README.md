@@ -8,6 +8,7 @@ Tonetrace 4.4.1: ein Sample aufnehmen, das volle Spektrogramm lesen (horizontale
 
 ## Features
 
+- **Ganzen Song laden (4.7, wie NeuralNote)**: **Load Song…** in der rechten Leiste oder eine Audiodatei (wav, aiff, mp3, m4a, flac, caf; bis 10 min) auf den Editor ziehen – nichts muss aufgenommen werden. Tonetrace analysiert den ganzen Song, MuScriptor transkribiert jedes Instrument, und jede Note trägt ihr Instrument (eigene Farbe in der Map, Name im Hover-Label). **Drag MIDI** / **Save .mid** schreiben dann eine MIDI-Datei mit **einer Spur pro Instrument** (Spurname, Program Change, Drums auf Kanal 10), ab Songanfang ausgerichtet. Rechtsklick → **Select instrument** wählt die Noten eines Instruments, Drag MIDI exportiert dann nur diese Spur. Ohne MuScriptor-Modell transkribiert Classic den Song (eine Spur) mit Hinweis.
 - **Volles Spektrogramm (4.3, Standard)**: die Ansicht **Spectrum** zeigt alle Energie des Samples, nicht nur Peaks: 8 Bins pro Halbton, Heat-Farbskala dunkel, blau/violett, rot, orange, gelb, weiß (starke Bereiche sättigen zu Weiß). Gehaltene Töne sind horizontale Bänder, Drums vertikale Streifen. **Lines** bleibt als Option (die Glow-Ansicht aus 4.2).
 - **Freie Noten (4.3)**: Klick oder Ziehen zeichnet immer eine neue Note, standardmäßig auf das Raster 1/16 gerastet, Magnet aus. Verschieben und Längenänderung sind nie an Linien oder Onsets gebunden. Noten sind dünne türkis-grüne Balken (5 bis 6 px).
 - **Breitformat-Oberfläche (4.4)**: 1280 × 720 (Minimum 1024 × 600), Kopfzeile mit Status, links Klaviatur und große Map, schmale rechte Leiste mit Drag MIDI unten; alles ohne Scrollen, die Zeitachse füllt standardmäßig die Breite (**Fit**). Sekundäre Schalter liegen im Optionen-Popover.
@@ -91,6 +92,8 @@ etwa alle 250 ms ab, legt die Spur an und antwortet in `outbox/`. Zusätzlich sc
 3. Helle horizontale Bänder sind Töne, vertikale Streifen sind Drums. Mit **Gain** und **Range** die Anzeige anpassen.
 4. Die Noten selbst zeichnen: Klick-Ziehen entlang eines Bandes (oder ein Klick für eine Note mit der Snap-Länge).
 5. **Drag MIDI** in eine MIDI-Spur ziehen (oder **Save .mid**), in Live alternativ **New Sampler Track**.
+
+Ganzer Song statt Aufnahme (4.7): **Load Song…** klicken oder die Audiodatei auf den Editor ziehen, warten bis der Status „Song: transcribing every instrument … %“ fertig ist, dann **Drag MIDI** in die Arrangement-Ansicht ziehen – der Host legt pro Instrument eine MIDI-Spur an (Live fragt beim Ablegen einer Mehrspur-Datei bzw. legt die Spuren nebeneinander an).
 
 ## Bedienung im Detail
 
@@ -180,16 +183,17 @@ Die Version steht nur in `VERSION`, der Build-Hash (git) im About-Overlay und im
 
 ```
 src/vst3/      VST3: Processor, Controller (Parameter, State), Entry/Factory, NSView-Editor
-src/core/      Kernel (plattformneutral): Capture, Preview, Analyse-Thread, Notenmodell, Snapshot, Diagnose, Log
-src/analysis/ml/  Engine MuScriptor: MuScriptorEngine (Registry, Notenumwandlung), MuScriptorTranscriber.mm (Download, Laden), muscriptor/ (C++23-Brücke arm64, Stub x86_64)
+src/core/      Kernel (plattformneutral): Capture, Preview, Analyse-Thread, Notenmodell, Snapshot, Diagnose, Log; Song-Import (SongImport, KernelSong, RecordingBuilder), Instrumente (Instruments)
+src/analysis/ml/  AudioFileDecoder.mm: Audiodateien über Core Audio (ExtAudioFile) für den Song-Import
+                  Engine MuScriptor: MuScriptorEngine (Registry, Notenumwandlung), MuScriptorTranscriber.mm (Download, Laden), muscriptor/ (C++23-Brücke arm64, Stub x86_64)
                   Engine Neural: Modell-Schnittstelle und Fensterung, Resampler, NoteDecoder, NeuralEngine, CoreML-Anbindung (NeuralTranscriber.mm)
 src/analysis/  Live-Spektrum, Pitch-Lines (Mehrfachauflösung, Tracking, Onsets, Tuning), Waveform-Peaks, HPSS/Drum-Filter, Noten-Analyse, Quick Grab (Halte-Erkennung: SustainGrab, SustainRuns, LowBand, BeatHits), Tonart, FFT
 src/capture/   vorab allokierter Aufnahmepuffer (120 s)
-src/midi/      MIDI-Writer (SMF Typ 1) und Export-Planer
+src/midi/      MIDI-Writer (SMF Typ 1, eine Spur pro Instrument) und Export-Planer
 src/bridge/    Client der Live-Bridge: Anfrage-JSON, atomares Schreiben, Heartbeat, Antworten
 live-bridge/   TonetraceBridge: das MIDI Remote Script für Ableton Live (Python, nur Standardbibliothek)
 src/preview/   Preview-Synth, lock-freie Notenübergabe
-src/state/     State-Codec (v4, liest v3), Editor-Einstellungen
+src/state/     State-Codec (v5 mit Instrument pro Note und Songname, liest v4 und v3), Editor-Einstellungen
 src/render/    Glow-Look: Colormap-LUT und Gauss-Profile (reines C++, getestet)
 src/ui/        Cocoa-Oberfläche (TTR*_v1): Map, Waveform, Piano, Controls, Logo (TTRLogo), About-Overlay, Diagnose
 assets/ml/     Basic-Pitch-Modell (CoreML-Paket, wird beim Bauen zu nmp.mlmodelc kompiliert)
@@ -214,6 +218,7 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Die Live-Trennung bei Hide drums kennt nur die Vergangenheit und weicht leicht vom Ergebnis nach dem Stoppen ab.
 - Quick Grab trennt Halbtöne im Bass (C1 bis B2) mit langen Fenstern (bis 0,74 s); die Kanten tiefer Töne sind deshalb bis ca. 100 ms unschärfer. Bei Aufnahmen aus einem geladenen State ohne Audio (über 60 s) fehlt die lange Analyse, Quick Grab fällt im Bass auf die Auflösung von 4.3 zurück.
 - Die Halte-Erkennung erreicht auf dichten echten Tracks nicht das Niveau des synthetischen Tests (Dauer-F1 der Techno-Mixes 0,74 bis 0,86, Ziel 0,85 in zwei von vier Mixes erreicht; Referenz-Track: F1-Bass in einem Stück, F2 und kurze Bassnoten fehlen): Pad-Töne unter Bass-Obertönen gehen verloren, Bass-Onsets kommen durch die langen Fenster bis ca. 100 ms zu spät. Reines weißes Rauschen erzeugt weiterhin einzelne Kurznoten (weniger als in 4.3). Details und Zahlen in `docs/ACCURACY.md`.
+- Song-Import: höchstens 10 Minuten (längere Dateien werden mit Hinweis abgeschnitten); die Transkription braucht etwa ein Drittel der Songlänge (5 min Song ca. 110 s auf Apple Silicon). Das Tempo der MIDI-Datei ist das Host-Tempo beim Laden – der Song wird nicht auf Tempo analysiert, also vorher das Projekttempo auf das Songtempo stellen. Die Audio-Preview reicht bis 2 min (Länge des Aufnahmepuffers), die Noten-Preview über den ganzen Song. Im Projekt gespeichert werden Noten und Instrumente immer, Spektrum, Wellenform und Audio nur, solange sie in den State passen (ca. 3 min); längere Songs öffnen nach dem Laden ohne Spektrum. Die Instrumente sind die Gruppen des Modells (z. B. „Distorted Guitar“, „Synth Pad“); mehrere gleiche Instrumente (zwei Gitarren) landen in einer Spur.
 - Engine MuScriptor: nur Apple Silicon, nur gespeichertes Audio (bis 60 s) nach dem Stopp, braucht einmalig Internet für den Modell-Download (620 MB) und Speicher für das Modell (GPU). Die Modellgewichte sind CC BY-NC 4.0, also nur für nicht-kommerzielle Nutzung. Auf rein synthetischen Klängen (nackter Sägezahn, Sinus) ist das Modell unzuverlässig (Oktavfehler, Zerstückelung); auf echten Tracks liefert es auch Pad-Akkorde und Drums, die man ggf. löschen muss. Die kurzen Bassnoten des Referenz-Tracks (C2, B1) findet es nicht. Der erste Grab nach dem Start des Hosts dauert länger (Laden, Metal-Shader).
 - Engine Neural: findet auf dem Referenz-Track 3 von 8 Zeilen (Abnahme 6), kurze Bassnoten (C2, A#1, B1) gar nicht; auf Mixes mit Drums (drums+melody, full mix) und bei Quick Grab 100 % liegt das F1 unter Classic. Sie analysiert nur das gespeicherte Audio (bis 60 s) und erst nach dem Stopp, nicht live. CoreML läuft bewusst nur auf der CPU (auf GPU / Neural Engine rechnet das Modell in float16 und meldet bei digitaler Stille alle Tasten).
 - Die Linien werden nicht im State gespeichert: bei Aufnahmen über 60 s, deren Audio nicht im State liegt, zeigt die Map nach dem Laden die alte Halbton-Heatmap.
@@ -224,6 +229,14 @@ Gemessen mit `tonetrace_bench` (Release, universal, nativ), Details in `docs/PER
 - Im Spectrum sind Töne unter ca. 125 Hz durch das lange Fenster zeitlich verschmiert (wie ein Bassanschlag in jedem Spektrogramm).
 
 ## Changelog
+
+### 4.7.0 – Ganzer Song, eine MIDI-Spur pro Instrument
+
+- **Song-Import:** **Load Song…** und Drag & Drop einer Audiodatei (Core Audio: wav, aiff, mp3, m4a, flac, caf; bis 10 min) ersetzen die Aufnahme. Der Song wird wie eine Aufnahme analysiert (Spektrum, Linien, Tonart) und danach vollständig von MuScriptor transkribiert; Fortschritt und Cancel über den Grab-Knopf, Undo stellt das vorige Dokument wieder her.
+- **Instrumente:** jede Note trägt ihr Instrument (GM-Program bzw. Drums). Farbe pro Instrumentfamilie in der Map, Instrumentname im Hover-Label, Rechtsklick → **Select instrument**. Gleiche Töne zweier Instrumente werden nicht mehr zusammengelegt.
+- **MIDI:** sobald Noten ein Instrument tragen, schreibt der Export eine Spur pro Instrument (Name, Program Change, Drums auf Kanal 10, bis 15 Melodiekanäle, darüber geteilt), bei Songs ab Songanfang und als „<Song> Tonetrace <BPM>bpm.mid“. Aufnahmen ohne Instrumente exportieren unverändert eine Spur. Neu: ein Note-off liegt nie hinter dem nächsten Note-on derselben Taste (vorher konnten bei direkt aufeinander folgenden Noten durch Rundung Noten verloren gehen).
+- **State v5:** Instrument pro Note und Songname; v4/v3 laden weiter. Wellenform und Audio werden weggelassen, wenn sie zu groß für den State sind (statt das Laden scheitern zu lassen).
+- **Tests:** 13 neue Unit-Tests (Instrumente, Mehrspur-MIDI, Kanalvergabe, State v5, Import mit Fake-Decoder und Fake-Modell, Fallback, Abbruch); `tonetrace_mstest` lädt den Testausschnitt jetzt zusätzlich als Song über Core Audio und das echte Modell (Distorted Guitar, Bass, Drums; eine Spur je Instrument).
 
 ### 4.6.0 – Engine MuScriptor (optional)
 
@@ -298,4 +311,5 @@ Map & Draw: Live-Spektrogramm, Noten zeichnen, MIDI-Export, Preview, Diagnose (s
 Das VST3 SDK von Steinberg steht unter der MIT-Lizenz und wird beim Bauen aus `external/vst3sdk` eingebunden.
 Die Neural-Engine nutzt das Modell Basic Pitch von Spotify (Apache-2.0, `assets/ml/nmp.mlpackage`); Lizenztext und NOTICE stehen in `THIRD_PARTY_LICENSES.md`.
 Die MuScriptor-Engine linkt muscriptor.cpp und ggml (MIT) sowie pffft (FFTPACK-Lizenz); die Modellgewichte (Kyutai/Mirelo) stehen unter CC BY-NC 4.0, werden nicht mitgeliefert, sondern beim ersten Gebrauch geladen und dürfen nur nicht-kommerziell genutzt werden. Details in `THIRD_PARTY_LICENSES.md`.
+Song-Import und Mehrspur-Export (4.7) folgen dem Ablauf von NeuralNote (Damien Ronssin, Apache-2.0: Datei laden, ganz transkribieren, eine MIDI-Spur pro Instrument, Drums auf Kanal 10); es ist kein Code aus NeuralNote übernommen, Tonetrace implementiert das selbst.
 VST is a registered trademark of Steinberg Media Technologies GmbH.

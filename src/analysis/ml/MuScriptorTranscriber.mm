@@ -118,7 +118,7 @@ public:
         const auto progress = [control](float p) { if (control) control->report(p); };
         if (!msb::transcribe(*model_, audio.data(), audio.size(), &notes, cancel, progress, reason)) return false;
         out->clear();
-        for (const msb::Note& n : notes) out->push_back({n.onset, n.offset, n.pitch, n.isDrum});
+        for (const msb::Note& n : notes) out->push_back({n.onset, n.offset, n.pitch, n.isDrum, n.program});
         return true;
     }
 

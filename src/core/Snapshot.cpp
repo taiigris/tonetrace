@@ -32,6 +32,7 @@ SnapshotPtr makeSnapshot(std::vector<NoteEvent> notes, const Recording& rec, uin
     s->lengthSec = rec.lengthSec;
     s->bpm = rec.bpm;
     s->startPpq = rec.startPpq;
+    s->sourceName = rec.sourceName;
     s->key = keyOf(notes, s->chroma);
     s->notes = std::move(notes);
     s->version = version;

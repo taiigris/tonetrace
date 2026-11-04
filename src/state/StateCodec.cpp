@@ -13,6 +13,9 @@ namespace {
 
 constexpr uint32_t kMagic = 0x31525454;  // "TTR1"
 constexpr uint32_t kLegacyVersion = 3;  // no checksum, no sync flag
+constexpr uint32_t kChecksumVersion = 4;  // first version with the size + CRC header
+constexpr uint32_t kInstrumentVersion = 5;  // instrument per note, song file name
+constexpr size_t kMaxSourceNameBytes = 1024;
 constexpr size_t kHeaderBytes = 16;     // magic, version, payload size, CRC32 (v4)
 constexpr uint32_t kMaxNotesInState = 200000;
 constexpr uint32_t kMaxFramesInState = 40000;
@@ -49,20 +52,36 @@ private:
     bool ok_ = true;
 };
 
-void putNote(Writer& w, const NoteEvent& n) {
+void putNote(Writer& w, const NoteEvent& n, uint32_t version) {
     w.put<int32_t>(n.pitch);
     w.put<double>(n.startSec);
     w.put<double>(n.endSec);
     w.put<uint8_t>(n.selected ? 1 : 0);
+    if (version >= kInstrumentVersion) w.put<int16_t>(int16_t(n.program));
 }
 
-NoteEvent getNote(Reader& r) {
+NoteEvent getNote(Reader& r, uint32_t version) {
     NoteEvent n;
     n.pitch = r.get<int32_t>();
     n.startSec = r.get<double>();
     n.endSec = r.get<double>();
     n.selected = r.get<uint8_t>() != 0;
+    n.program = version >= kInstrumentVersion ? int(r.get<int16_t>()) : kNoProgram;
     return n;
+}
+
+void putString(Writer& w, const std::string& text) {
+    const size_t n = std::min(text.size(), kMaxSourceNameBytes);
+    w.put<uint16_t>(uint16_t(n));
+    for (size_t i = 0; i < n; ++i) w.put<uint8_t>(uint8_t(text[i]));
+}
+
+bool getString(Reader& r, std::string* out) {
+    const uint16_t n = r.get<uint16_t>();
+    if (!r.ok() || n > kMaxSourceNameBytes || r.remaining() < n) return false;
+    out->resize(n);
+    for (char& c : *out) c = char(r.get<uint8_t>());
+    return r.ok();
 }
 
 uint8_t quantizeValue(float v) {
@@ -117,9 +136,13 @@ std::shared_ptr<Spectrogram> getSpectrogram(Reader& r) {
 }
 
 constexpr size_t kNoteStateBytes = 21;  // pitch, start, end, selected
+constexpr size_t kProgramBytes = 2;     // v5: instrument
+
+size_t noteStateBytes(uint32_t version) { return kNoteStateBytes + (version >= kInstrumentVersion ? kProgramBytes : 0); }
 
 bool validNote(const NoteEvent& n) {
-    return n.pitch >= 0 && n.pitch <= 127 && std::isfinite(n.startSec) && std::isfinite(n.endSec) && n.endSec >= n.startSec;
+    return n.pitch >= 0 && n.pitch <= 127 && std::isfinite(n.startSec) && std::isfinite(n.endSec) && n.endSec >= n.startSec &&
+           (n.program == kNoProgram || (n.program >= 0 && n.program <= kMaxProgram));
 }
 
 bool fail(std::string* reason, const char* text) {
@@ -140,7 +163,7 @@ bool readHeader(const uint8_t* data, size_t size, uint32_t* version, const uint8
         return true;
     }
     if (*version > kStateFormatVersion) return fail(reason, "the state was saved by a newer Tonetrace version");
-    if (*version != kStateFormatVersion) return fail(reason, "unknown state format version");
+    if (*version < kChecksumVersion) return fail(reason, "unknown state format version");
     if (size < kHeaderBytes) return fail(reason, "the state is truncated");
     const uint32_t length = head.get<uint32_t>(), crc = head.get<uint32_t>();
     if (length != size - kHeaderBytes) return fail(reason, "the state is truncated or has extra data");
@@ -198,6 +221,11 @@ std::shared_ptr<AudioClip> getAudio(Reader& r) {
 }  // namespace
 
 std::vector<uint8_t> encodeState(const ParamValues& params, const Snapshot* snap, bool syncToHost) {
+    return encodeStateAs(params, snap, syncToHost, kStateFormatVersion);
+}
+
+std::vector<uint8_t> encodeStateAs(const ParamValues& params, const Snapshot* snap, bool syncToHost, uint32_t version) {
+    if (version < kChecksumVersion || version > kStateFormatVersion) version = kStateFormatVersion;
     Writer w;
     for (float p : params) w.put<float>(p);
     w.put<uint8_t>(syncToHost ? 1 : 0);
@@ -209,20 +237,24 @@ std::vector<uint8_t> encodeState(const ParamValues& params, const Snapshot* snap
         w.put<uint64_t>(snap->version);
         for (float v : snap->chroma) w.put<float>(v);
         w.put<uint32_t>(uint32_t(snap->notes.size()));
-        for (const NoteEvent& n : snap->notes) putNote(w, n);
+        for (const NoteEvent& n : snap->notes) putNote(w, n, version);
 
         const Spectrogram* spec = snap->spectrogram.get();
         const bool storeSpectrogram = spec && spectrogramBytes(*spec) < kMaxSpectrogramStateBytes;
         w.put<uint8_t>(storeSpectrogram ? 1 : 0);
         if (storeSpectrogram) putSpectrogram(w, *spec);
-        w.put<uint8_t>(snap->peaks ? 1 : 0);
-        if (snap->peaks) putPeaks(w, *snap->peaks);
-        w.put<uint8_t>(snap->audio ? 1 : 0);
-        if (snap->audio) putAudio(w, *snap->audio);
+        // A long imported song keeps its notes; waveform and audio beyond what a state may hold are left out (4.7).
+        const bool storePeaks = snap->peaks && snap->peaks->minMax.size() <= 2 * size_t(kMaxPeaksInState);
+        w.put<uint8_t>(storePeaks ? 1 : 0);
+        if (storePeaks) putPeaks(w, *snap->peaks);
+        const bool storeAudio = snap->audio && snap->audio->samples.size() <= kMaxAudioSamplesInState;
+        w.put<uint8_t>(storeAudio ? 1 : 0);
+        if (storeAudio) putAudio(w, *snap->audio);
+        if (version >= kInstrumentVersion) putString(w, snap->sourceName);
     }
     Writer out;
     out.put<uint32_t>(kMagic);
-    out.put<uint32_t>(kStateFormatVersion);
+    out.put<uint32_t>(version);
     out.put<uint32_t>(uint32_t(w.bytes.size()));
     out.put<uint32_t>(crc32(w.bytes.data(), w.bytes.size()));
     out.bytes.insert(out.bytes.end(), w.bytes.begin(), w.bytes.end());
@@ -240,7 +272,7 @@ bool decodeStateParams(const uint8_t* data, size_t size, ParamValues* out, std::
 
 namespace {
 
-bool decodeSnapshot(Reader& r, SnapshotPtr* out, std::string* reason) {
+bool decodeSnapshot(Reader& r, uint32_t formatVersion, SnapshotPtr* out, std::string* reason) {
     Recording rec;
     rec.lengthSec = r.get<double>();
     rec.bpm = r.get<double>();
@@ -253,17 +285,18 @@ bool decodeSnapshot(Reader& r, SnapshotPtr* out, std::string* reason) {
         if (!std::isfinite(v)) return fail(reason, "invalid key data");
     }
     const uint32_t count = r.get<uint32_t>();
-    if (!r.ok() || count > kMaxNotesInState || r.remaining() < size_t(count) * kNoteStateBytes) return fail(reason, "invalid note count");
+    if (!r.ok() || count > kMaxNotesInState || r.remaining() < size_t(count) * noteStateBytes(formatVersion)) return fail(reason, "invalid note count");
     std::vector<NoteEvent> notes;
     notes.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
-        const NoteEvent n = getNote(r);
+        const NoteEvent n = getNote(r, formatVersion);
         if (!validNote(n)) return fail(reason, "invalid note data");
         notes.push_back(n);
     }
     if (r.get<uint8_t>() != 0 && !(rec.spectrogram = getSpectrogram(r))) return fail(reason, "invalid spectrogram data");
     if (r.get<uint8_t>() != 0 && !(rec.peaks = getPeaks(r))) return fail(reason, "invalid waveform data");
     if (r.get<uint8_t>() != 0 && !(rec.audio = getAudio(r))) return fail(reason, "invalid audio data");
+    if (formatVersion >= kInstrumentVersion && !getString(r, &rec.sourceName)) return fail(reason, "invalid song name");
     if (!r.ok()) return fail(reason, "the state is truncated");
     *out = makeSnapshot(std::move(notes), rec, version);
     return true;
@@ -280,10 +313,10 @@ bool decodeState(const uint8_t* data, size_t size, DecodedState* out, std::strin
     DecodedState state;
     state.formatVersion = version;
     if (!readParams(r, &state.params, reason)) return false;
-    if (version >= kStateFormatVersion) state.syncToHost = r.get<uint8_t>() != 0;
+    if (version >= kChecksumVersion) state.syncToHost = r.get<uint8_t>() != 0;
     const uint8_t hasSnapshot = r.get<uint8_t>();
     if (!r.ok()) return fail(reason, "the state is truncated");
-    if (hasSnapshot != 0 && !decodeSnapshot(r, &state.snapshot, reason)) return false;
+    if (hasSnapshot != 0 && !decodeSnapshot(r, version, &state.snapshot, reason)) return false;
     *out = std::move(state);
     return true;
 }

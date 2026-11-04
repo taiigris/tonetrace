@@ -132,7 +132,15 @@ public:
     // Quick Grab on a background thread: returns false when one is already running or there is nothing to analyse.
     // The result is merged as one undo step and announced as a notice.
     bool startQuickGrab();
-    void cancelQuickGrab();
+    void cancelQuickGrab();          // waits for the task to end
+    void requestCancelQuickGrab();   // asks it to stop and returns at once (UI thread)
+    // 4.7: loads a whole song file instead of a recording (a new document, undoable), then transcribes every instrument
+    // with MuScriptor (Classic without the model). Runs as the Quick Grab task: same progress, same Cancel.
+    // False when something else runs or the file type is not supported.
+    bool startSongImport(const std::string& path);
+    bool songImportRunning() const { return importRunning_.load(); }
+    enum class SongStage : int { Loading = 0, Analysing = 1, Transcribing = 2 };
+    SongStage songImportStage() const { return SongStage(importStage_.load()); }
     bool quickGrabRunning() const { return grabRunning_.load(); }
     float quickGrabProgress() const { return grabControl_.progress.load(); }
     void resetAll();  // recording, notes and history; undoable (the whole document is one history step)
@@ -176,6 +184,9 @@ private:
     bool applyHistoryLocked(bool isUndo);  // requires mutateMutex_
     int mergeGrabbed(const SnapshotPtr& base, std::vector<NoteEvent> grabbed);  // adds notes as one undo step; returns how many
     void reportFallback(const GrabOutcome& outcome, GrabEngine requested);  // Neural/MuScriptor asked for, Classic ran: log + notice
+    void runSongImport(const std::string& path, double bpm, uint64_t recordSeq);  // the import task (KernelSong.cpp)
+    SnapshotPtr publishSong(const Recording& recording, uint64_t recordSeq);      // the song as a new document, or null
+    std::vector<NoteEvent> transcribeSong(const SnapshotPtr& song, const std::vector<float>& mono, double rate);
     void mixPreview(float* const* channels, int numChannels, int frames);
     double syncedPosition() const;
 
@@ -185,7 +196,8 @@ private:
     std::atomic<double> previewStart_{0.0}, loopStart_{0.0}, loopEnd_{0.0};
     std::atomic<uint64_t> recordSeq_{0}, analysisSeq_{0};
     std::atomic<bool> workerRun_{false};
-    std::atomic<bool> syncToHost_{false}, hostPlaying_{false}, grabRunning_{false};
+    std::atomic<bool> syncToHost_{false}, hostPlaying_{false}, grabRunning_{false}, importRunning_{false};
+    std::atomic<int> importStage_{0};
     std::atomic<double> docBpm_{kDefaultBpm}, docStartPpq_{0.0};
     std::atomic<uint64_t> generation_{0};
     const int instanceId_;

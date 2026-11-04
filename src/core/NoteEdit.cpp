@@ -79,12 +79,15 @@ NoteEvent makeNote(int pitch, double t0, double t1, const TimeGrid& grid, bool s
 }
 
 std::vector<NoteEvent> normalizedNotes(std::vector<NoteEvent> notes) {
+    // Keyed on the instrument too: two instruments on the same note at the same time is ordinary music (4.7).
     std::sort(notes.begin(), notes.end(), [](const NoteEvent& a, const NoteEvent& b) {
+        if (a.program != b.program) return a.program < b.program;
         return a.pitch != b.pitch ? a.pitch < b.pitch : a.startSec < b.startSec;
     });
     std::vector<NoteEvent> merged;
     for (const NoteEvent& n : notes) {
-        if (!merged.empty() && merged.back().pitch == n.pitch && n.startSec < merged.back().endSec) {
+        const bool sameVoice = !merged.empty() && merged.back().program == n.program && merged.back().pitch == n.pitch;
+        if (sameVoice && n.startSec < merged.back().endSec) {
             merged.back().endSec = std::max(merged.back().endSec, n.endSec);
             merged.back().selected = merged.back().selected || n.selected;
         } else {
@@ -92,7 +95,8 @@ std::vector<NoteEvent> normalizedNotes(std::vector<NoteEvent> notes) {
         }
     }
     std::sort(merged.begin(), merged.end(), [](const NoteEvent& a, const NoteEvent& b) {
-        return a.startSec != b.startSec ? a.startSec < b.startSec : a.pitch < b.pitch;
+        if (a.startSec != b.startSec) return a.startSec < b.startSec;
+        return a.pitch != b.pitch ? a.pitch < b.pitch : a.program < b.program;
     });
     return merged;
 }

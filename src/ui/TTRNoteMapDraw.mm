@@ -173,10 +173,12 @@ NSString* formatClock(double t) {
         if (NSMaxX(row) < 0 || row.origin.x > b.size.width || NSMaxY(row) < 0 || row.origin.y > b.size.height) continue;
         const NSRect bar = TTRNoteBarRect(row);
         const CGFloat radius = MIN(1.5, bar.size.height / 3.0);
-        TTRFillRounded(bar, radius, n.selected ? TTRHex(0xFFFFFF, 0.95) : TTRHex(0x2EE6C5, 0.95));  // turquoise bar, dark rim so it stays readable on white
-        TTRStrokeRounded(bar, radius, n.selected ? TTRHex(0x6E7378, 0.9) : TTRHex(0x0B6B5C, 0.9), 1.0);
+        const uint32_t colour = TTRInstrumentRGB(n.program);  // turquoise without an instrument, a hue per instrument family otherwise
+        TTRFillRounded(bar, radius, n.selected ? TTRHex(0xFFFFFF, 0.95) : TTRHex(colour, 0.95));  // dark rim so it stays readable on white
+        TTRStrokeRounded(bar, radius, n.selected ? TTRHex(0x6E7378, 0.9) : TTRHex(n.program == ttr::kNoProgram ? 0x0B6B5C : TTRDarkerRGB(colour), 0.9), 1.0);
         if (!n.selected && int(i) != hovered) continue;  // the name only shows on hover or selection, beside the bar
-        NSString* name = TTRNoteName(n.pitch);
+        NSString* name = n.program == ttr::kNoProgram ? TTRNoteName(n.pitch)
+                                                      : [NSString stringWithFormat:@"%@ · %s", TTRNoteName(n.pitch), ttr::instrumentName(n.program).c_str()];
         const CGFloat w = TTRTextWidth(name, font) + 8, h = 13;
         CGFloat x = NSMaxX(bar) + 4;
         if (x + w > b.size.width - 2) x = bar.origin.x - 4 - w;

@@ -17,6 +17,7 @@ struct TranscribedNote {
     double onset = 0.0, offset = 0.0;  // seconds
     int pitch = 60;                    // MIDI; GM percussion note when isDrum
     bool isDrum = false;
+    int program = 0;                   // GM program the model decoded (kDrumProgram for a drum hit)
 };
 
 class NoteTranscriber {
@@ -51,5 +52,7 @@ struct MuScriptorGrab {
 };
 // The whole path for a document: stored recording -> 16 kHz -> transcriber -> notes. ok = false when anything is missing.
 MuScriptorGrab muscriptorGrabSnapshot(const Snapshot& snapshot, TaskControl* control);
+// 4.7: the same for any mono signal at `sampleRate` (a whole imported song, at full quality instead of the stored clip).
+MuScriptorGrab muscriptorTranscribe(const std::vector<float>& mono, double sampleRate, double bpm, TaskControl* control);
 
 }  // namespace ttr

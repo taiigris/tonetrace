@@ -74,3 +74,38 @@ static inline BOOL TTRIsBlackKey(int pitch) {
     const int pc = ((pitch % 12) + 12) % 12;
     return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
 }
+
+// 4.7: note colour per instrument (MuScriptor songs). Notes without an instrument keep the turquoise accent; the
+// families get their own hues and the members of a family step through lightness, so a family reads at a glance.
+#include <algorithm>
+
+#include "core/Instruments.h"
+
+static inline uint32_t TTRInstrumentRGB(int program) {
+    static const uint32_t kFamily[] = {
+        0x2EE6C5,  // None: the accent
+        0x5B8CFF,  // Keys
+        0xB7BDD6,  // Percussion
+        0x3F6FD8,  // Organ
+        0x52D68A,  // Guitar
+        0xA45BFF,  // Bass
+        0xFF5C7A,  // Strings
+        0x45C8F0,  // Voice
+        0xFFB547,  // Brass
+        0xFF7A4D,  // Reed
+        0xC6E05A,  // Winds
+        0x7FDDFF,  // Synth
+        0x9AA4B5,  // Drums
+    };
+    const uint32_t base = kFamily[static_cast<int>(ttr::instrumentFamily(program))];
+    if (program < 0 || program == ttr::kDrumProgram) return base;
+    const double shade = 0.78 + 0.11 * double(program % 4);  // 0.78 .. 1.11 within a family
+    auto channel = [&](int shift) { return uint32_t(std::min(255.0, double((base >> shift) & 0xFF) * shade)) << shift; };
+    return channel(16) | channel(8) | channel(0);
+}
+
+// Darker rim of the same hue (keeps the bar readable on bright spectrum areas).
+static inline uint32_t TTRDarkerRGB(uint32_t rgb) {
+    auto channel = [&](int shift) { return (((rgb >> shift) & 0xFF) * 2 / 5) << shift; };
+    return channel(16) | channel(8) | channel(0);
+}

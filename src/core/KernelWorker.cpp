@@ -10,25 +10,16 @@
 #include "analysis/QuickGrab.h"
 #include "analysis/Spectrogram.h"
 #include "core/Logger.h"
+#include "core/RecordingBuilder.h"
 #include "core/TonetraceKernel.h"
 
 namespace ttr {
 
 namespace {
 constexpr auto kPollInterval = std::chrono::milliseconds(10);
-constexpr double kMaxStoredAudioSeconds = 60.0;
 constexpr float kInt16Scale = 32767.0f;
 constexpr double kMillisPerSecond = 1000.0;
 
-std::shared_ptr<const AudioClip> makeClip(const float* samples, size_t count, double sampleRate) {
-    if (double(count) / sampleRate > kMaxStoredAudioSeconds) return nullptr;
-    const DecimatedSignal reduced = decimate(samples, count, sampleRate);
-    auto clip = std::make_shared<AudioClip>();
-    clip->sampleRate = reduced.sampleRate;
-    clip->samples.reserve(reduced.samples.size());
-    for (float v : reduced.samples) clip->samples.push_back(int16_t(std::lround(std::clamp(v, -1.0f, 1.0f) * kInt16Scale)));
-    return clip;
-}
 }  // namespace
 
 void TonetraceKernel::workerLoop() {
@@ -90,21 +81,9 @@ void TonetraceKernel::runAnalysis() {
     const size_t count = capture_.size();
     const float* samples = capture_.data();
 
-    Recording recording;
-    recording.lengthSec = double(count) / sampleRate_;
+    Recording recording = analyseAudio(samples, count, sampleRate_, kMaxStoredAudioSeconds);
     recording.bpm = recBpm_;
     recording.startPpq = recBeat_;
-    recording.spectrogram = computeSpectrogram(samples, count, sampleRate_);
-    PeakBuilder peaks;
-    peaks.prepare(sampleRate_, recording.lengthSec);
-    peaks.advance(samples, count);
-    recording.peaks = peaks.finish();
-    recording.audio = recording.spectrogram ? makeClip(samples, count, sampleRate_) : nullptr;
-    if (recording.spectrogram) {
-        const DecimatedSignal reduced = decimate(samples, count, sampleRate_);
-        recording.lines = computePitchLines(reduced.samples.data(), long(reduced.samples.size()), reduced.sampleRate, recording.spectrogram.get());
-    }
-    if (recording.spectrogram) recording.chroma = spectrogramChroma(*recording.spectrogram);
     if (recordSeq_.load() != seq) return;
 
     {
@@ -177,6 +156,8 @@ void TonetraceKernel::stopLinesJob() {
     linesControl_.cancel.store(true);
     if (linesThread_.joinable()) linesThread_.join();
 }
+
+void TonetraceKernel::requestCancelQuickGrab() { grabControl_.cancel.store(true); }
 
 void TonetraceKernel::cancelQuickGrab() {
     grabControl_.cancel.store(true);

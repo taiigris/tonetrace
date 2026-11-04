@@ -144,6 +144,7 @@
     _recordButton.onClick = ^{ [weak toggleRecord]; };
     [self addSubview:_recordButton];
     _resetButton = [self addButton:@"Reset" kind:TTRButtonKindNormal tip:@"Delete the recording and all notes (Cmd-click skips the question)" action:^{ [weak resetClicked]; }];
+    _loadSongButton = [self addButton:@"Load Song…" kind:TTRButtonKindNormal tip:@"Load a whole song (wav, aiff, mp3, m4a, flac; up to 10 min) instead of recording it - or drop the file on the editor. MuScriptor transcribes every instrument, Drag MIDI then gives one track per instrument" action:^{ [weak loadSongClicked]; }];
     _previewButton = [self addButton:@"Preview" kind:TTRButtonKindPlay tip:@"Play the recording together with your notes (Space)" action:^{ [weak togglePreview]; }];
     _dragButton = [[TTRDragButton_v1 alloc] initWithTitle:@"Drag MIDI" kind:TTRButtonKindDrag];
     _dragButton.toolTip = @"Drag the selected notes (or all notes) into a MIDI track or clip";

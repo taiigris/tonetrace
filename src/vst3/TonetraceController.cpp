@@ -12,6 +12,7 @@
 #include "core/NoteEdit.h"
 #include "state/StateCodec.h"
 #include "core/Logger.h"
+#include "analysis/ml/AudioFileDecoder.h"
 #include "analysis/ml/MuScriptorTranscriber.h"
 #include "analysis/ml/NeuralTranscriber.h"
 #include "vst3/StreamIo.h"
@@ -87,6 +88,7 @@ void TonetraceController::addParameters() {
 
 tresult PLUGIN_API TonetraceController::initialize(FUnknown* context) {
     installCoreMLLoader();      // only registers the loader; the model loads on the first Neural Quick Grab
+    installAudioFileDecoder();  // 4.7: "Load Song" / dropping an audio file on the editor
     installMuScriptorLoader();  // same; the model downloads when the engine is picked or on the first MuScriptor grab
     const tresult result = EditController::initialize(context);
     if (result != kResultOk) return result;

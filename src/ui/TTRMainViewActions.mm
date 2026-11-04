@@ -58,8 +58,9 @@ static const double kSpeedSteps[] = {0.25, 0.5, 1.0, 2.0, 4.0, 8.0};
 // Quick Grab runs on a background thread; the result arrives as a notice. A second click cancels it.
 - (void)grabClicked {
     if (_kernel->quickGrabRunning()) {
-        _kernel->cancelQuickGrab();
-        [self showMessage:@"Quick Grab cancelled"];
+        const BOOL isImport = _kernel->songImportRunning();
+        _kernel->requestCancelQuickGrab();  // returns at once; the task stops at its next check
+        [self showMessage:isImport ? @"Song import cancelled" : @"Quick Grab cancelled"];
     } else if (!_kernel->startQuickGrab()) {
         [self showMessage:@"Quick Grab needs a finished recording"];
     }
@@ -128,6 +129,7 @@ static const float kTuningStepCents = 5.0f;
 
 - (NSString*)statusLineForSnapshot:(const ttr::SnapshotPtr&)snap status:(ttr::KernelStatus)status {
     if (_transientMessage && CACurrentMediaTime() < _transientUntil) return _transientMessage;
+    if (_kernel->songImportRunning()) return [self songStatusLine];
     if (_kernel->quickGrabRunning()) return [NSString stringWithFormat:@"Quick Grab %.0f %% – click Cancel to stop", _kernel->quickGrabProgress() * 100.0f];
     if (status == ttr::KernelStatus::Recording) return [NSString stringWithFormat:@"Recording %d:%02d – play your sample, press the red button to stop", int(_kernel->recordedSeconds()) / 60, int(_kernel->recordedSeconds()) % 60];
     if (status == ttr::KernelStatus::Analysing) return @"Analysing…";

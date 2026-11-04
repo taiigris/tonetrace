@@ -15,6 +15,7 @@ struct Recording {
     double lengthSec = 0.0;
     double bpm = kDefaultBpm;
     double startPpq = 0.0;
+    std::string sourceName;  // imported song file name, empty for a recording
 };
 
 // Pitch-class energy of the recording from the harmonic-suppressed salience (so overtones do not

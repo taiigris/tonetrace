@@ -87,7 +87,40 @@ typedef struct { int index; TTRGesture gesture; } TTRNoteHit;
         item.enabled = e.enabled;
         [menu addItem:item];
     }
+    [self addInstrumentItemsTo:menu];
     return menu;
+}
+
+// 4.7: "Select instrument" picks every note of one instrument, so Drag MIDI exports just that track.
+- (void)addInstrumentItemsTo:(NSMenu*)menu {
+    const std::vector<ttr::InstrumentSummary> instruments = ttr::instrumentsIn([self notes]);
+    if (!ttr::hasInstruments([self notes])) return;
+    NSMenu* sub = [[NSMenu alloc] initWithTitle:@"Select instrument"];
+    for (const ttr::InstrumentSummary& s : instruments) {
+        NSString* title = [NSString stringWithFormat:@"%s (%d)", ttr::instrumentName(s.program).c_str(), s.noteCount];
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title action:@selector(selectInstrument:) keyEquivalent:@""];
+        item.target = self;
+        item.tag = s.program;
+        item.image = [NSImage imageWithSize:NSMakeSize(10, 10) flipped:NO drawingHandler:^BOOL(NSRect r) {
+            [TTRHex(TTRInstrumentRGB(s.program)) setFill];
+            [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(r, 1, 1) xRadius:2 yRadius:2] fill];
+            return YES;
+        }];
+        [sub addItem:item];
+    }
+    NSMenuItem* parent = [[NSMenuItem alloc] initWithTitle:@"Select instrument" action:nil keyEquivalent:@""];
+    parent.submenu = sub;
+    [menu addItem:NSMenuItem.separatorItem];
+    [menu addItem:parent];
+}
+
+- (void)selectInstrument:(NSMenuItem*)item {
+    const std::vector<ttr::NoteEvent> picked = ttr::withInstrumentSelected([self notes], int(item.tag));
+    _kernel->setNotes(picked);
+    if (self.onMessage)
+        self.onMessage([NSString stringWithFormat:@"%d %s notes selected - Drag MIDI exports only them", ttr::selectedCount(picked),
+                                                  ttr::instrumentName(int(item.tag)).c_str()]);
+    self.needsDisplay = YES;
 }
 
 - (void)mouseDown:(NSEvent*)event {

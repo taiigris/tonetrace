@@ -12,14 +12,19 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "analysis/QuickGrab.h"
 #include "analysis/Spectrogram.h"
+#include "analysis/ml/AudioFileDecoder.h"
 #include "analysis/ml/MuScriptorEngine.h"
 #include "analysis/ml/MuScriptorTranscriber.h"
 #include "analysis/ml/Resampler.h"
 #include "analysis/ml/muscriptor/MuScriptorBridge.h"
+#include "core/Instruments.h"
+#include "core/TonetraceKernel.h"
+#include "midi/ExportPlanner.h"
 
 using namespace ttr;
 
@@ -99,6 +104,37 @@ void fixtureTest(const std::string& model, const std::string& fixture) {
     check(secs / length < kMaxRealtimeFactor, "faster than real time");
 }
 
+// 4.7: the whole song path as the editor runs it: the file through Core Audio, the kernel's import task, the model, and
+// the multi-track MIDI that Drag MIDI writes.
+void songImportTest(const std::string& fixture) {
+    installAudioFileDecoder();
+    TonetraceKernel k;
+    k.prepare(kHostRate, 512);
+    const auto t0 = std::chrono::steady_clock::now();
+    check(k.startSongImport(fixture), "song import starts");
+    for (int i = 0; i < 1200 && k.quickGrabRunning(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    const SnapshotPtr snap = k.snapshot();
+    Notice n;
+    while (k.diagnostics().popNotice(&n)) std::printf("     notice: %s\n", n.text.c_str());
+    check(snap && snap->hasRecording() && snap->sourceName == fileNameOf(fixture), "the song became the document");
+    if (!snap) return;
+    const std::vector<InstrumentSummary> instruments = instrumentsIn(snap->notes);
+    std::printf("     %.1f s song imported in %.1f s: %zu notes, %zu instruments:", snap->lengthSec, secs, snap->notes.size(), instruments.size());
+    for (const InstrumentSummary& s : instruments) std::printf(" %s(%d)", instrumentName(s.program).c_str(), s.noteCount);
+    std::printf("\n");
+    bool hasDrums = false;
+    for (const InstrumentSummary& s : instruments) hasDrums = hasDrums || s.program == kDrumProgram;
+    check(instruments.size() >= 3 && hasDrums, "several instruments incl. drums");
+    const ParsedMidi midi = parseMidiFile(buildMidiForNotes(*snap, 0, snap->key));
+    std::printf("     MIDI: valid %d, %d tracks, %zu notes\n", int(midi.valid), midi.tracks, midi.notes.size());
+    check(midi.valid && midi.tracks == int(instruments.size()) + 1 && midi.notes.size() == snap->notes.size(), "one MIDI track per instrument");
+    int onDrumChannel = 0;
+    for (const MidiNote& m : midi.notes) onDrumChannel += m.channel == kDrumChannel ? 1 : 0;
+    check(onDrumChannel > 0, "drums on MIDI channel 10");
+    k.deactivate();
+}
+
 void silenceTest() {
     const Snapshot snap = snapshotOf(std::vector<float>(size_t(3.0 * kHostRate), 0.0f), kHostRate);
     const GrabOutcome out = quickGrabWithEngine(snap, 0.5f, FilterSettings{}, 0.0, GrabEngine::MuScriptor);
@@ -122,8 +158,10 @@ int main(int argc, char** argv) {
         return failures == 0 ? 0 : 1;
     }
     setenv(kMuScriptorModelEnv, model.c_str(), 1);
-    fixtureTest(model, argc > 2 ? argv[2] : TONETRACE_MS_FIXTURE);
+    const std::string fixture = argc > 2 ? argv[2] : TONETRACE_MS_FIXTURE;
+    fixtureTest(model, fixture);
     silenceTest();
+    songImportTest(fixture);
     std::printf("%s\n", failures == 0 ? "MSTEST PASSED" : "MSTEST FAILED");
     return failures == 0 ? 0 : 1;
 }

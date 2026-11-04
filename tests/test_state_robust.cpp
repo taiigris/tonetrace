@@ -20,7 +20,7 @@ namespace {
 constexpr int kFuzzCases = 12000;
 constexpr size_t kHeader = 16;
 
-std::vector<uint8_t> sampleState(ParamValues params, bool sync) {
+std::vector<uint8_t> sampleState(ParamValues params, bool sync, uint32_t version = kStateFormatVersion) {
     constexpr double kRate = 44100.0;
     const auto sig = tsig::synth({{57, 0.0, 1.0, 0.4f}, {64, 0.5, 1.5, 0.4f}}, kRate, 1.6, true);
     Recording rec;
@@ -40,7 +40,7 @@ std::vector<uint8_t> sampleState(ParamValues params, bool sync) {
     grid.bpm = 111.0;
     auto notes = withNoteAdded({}, makeNote(57, 0.0, 1.0, grid, true));
     notes = withNoteAdded(notes, makeNote(64, 0.5, 1.5, grid, true));
-    return encodeState(params, makeSnapshot(notes, rec, 5).get(), sync);
+    return encodeStateAs(params, makeSnapshot(notes, rec, 5).get(), sync, version);
 }
 
 // The v3 layout, written independently of the codec: magic, version 3, parameters, then the v4 body without the sync byte.
@@ -80,10 +80,10 @@ TEST(state_decoder_survives_12000_fuzzed_blobs) {
     ParamValues params = defaultParams();
     params[kParamGain] = 0.3f;
     const std::vector<uint8_t> valid = sampleState(params, true);
-    const std::vector<uint8_t> legacy = toLegacyV3(valid);
+    const std::vector<uint8_t> legacy = toLegacyV3(sampleState(params, true, 4));
     CHECK(valid.size() > 1000);
     DecodedState ok;
-    CHECK(decodeState(valid.data(), valid.size(), &ok) && ok.snapshot && ok.syncToHost && ok.formatVersion == 4);
+    CHECK(decodeState(valid.data(), valid.size(), &ok) && ok.snapshot && ok.syncToHost && ok.formatVersion == kStateFormatVersion);
 
     std::mt19937 rng(0xC0FFEE);
     auto rnd = [&](size_t n) { return size_t(rng() % std::max<size_t>(1, n)); };
@@ -170,7 +170,7 @@ TEST(v3_states_migrate_to_v4) {
     params[kParamSnap] = 2.0f;
     params[kParamSoundVolume] = 0.25f;
     params[kParamHideDrums] = 0.0f;
-    const std::vector<uint8_t> v4 = sampleState(params, true);
+    const std::vector<uint8_t> v4 = sampleState(params, true, 4);
     const std::vector<uint8_t> v3 = toLegacyV3(v4);
 
     DecodedState fromV3, fromV4;
@@ -200,7 +200,7 @@ TEST(v3_states_migrate_to_v4) {
     // Saving a migrated project writes v4 and loads again.
     const std::vector<uint8_t> resaved = encodeState(fromV3.params, fromV3.snapshot.get(), fromV3.syncToHost);
     DecodedState again;
-    CHECK(decodeState(resaved.data(), resaved.size(), &again) && again.formatVersion == 4 && again.snapshot && again.snapshot->notes.size() == 2);
+    CHECK(decodeState(resaved.data(), resaved.size(), &again) && again.formatVersion == kStateFormatVersion && again.snapshot && again.snapshot->notes.size() == 2);
 }
 
 TEST(editor_state_roundtrip_defaults_and_hostile_input) {

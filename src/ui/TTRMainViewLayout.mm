@@ -45,6 +45,8 @@ static const CGFloat kOptionsW = 288, kOptionsRowH = 28, kOptionsPad = 16;
     _resetButton.frame = NSMakeRect(x, y, half, kButtonH);
     _previewButton.frame = NSMakeRect(x + half + kGrid, y, half, kButtonH);
     y += kButtonH + kGrid;
+    _loadSongButton.frame = NSMakeRect(x, y, w, kButtonH);
+    y += kButtonH + kGrid;
 
     CGFloat bottom = H - kPad;  // bottom group, built upwards
     auto upward = [&](NSView* v, CGFloat h, CGFloat gap) { bottom -= h; v.frame = NSMakeRect(x, bottom, w, h); bottom -= gap; };

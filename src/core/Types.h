@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace ttr {
@@ -16,6 +17,9 @@ constexpr double kMaxRecordSeconds = 120.0;
 constexpr double kDefaultBpm = 120.0;
 constexpr int kPeaksPerSecond = 200;  // waveform overview resolution
 constexpr int kExportVelocity = 100;  // drawn notes carry no dynamics
+constexpr int kNoProgram = -1;      // a note without an instrument (drawn, Classic/Neural Quick Grab)
+constexpr int kDrumProgram = 128;   // MuScriptor drum hit: pitch is the GM percussion note
+constexpr int kMaxProgram = 128;
 
 struct NoteEvent {
     int pitch = 60;
@@ -25,6 +29,7 @@ struct NoteEvent {
     bool selected = false;
     float tonality = 1.0f;  // Quick Grab segment filter: mean harmonic share of the note bins (0..1)
     float sustain = 1.0f;   // Quick Grab segment filter: energy 2nd half / 1st half of the segment (0..2)
+    int program = kNoProgram;  // 4.7: instrument (GM program 0..127, kDrumProgram) from MuScriptor; one MIDI track each
 };
 
 // Salience matrix: relative amplitude (0..1) per frame and note, after harmonic suppression (Quick Grab only).
@@ -86,6 +91,7 @@ struct Snapshot {
     double lengthSec = 0.0;
     double bpm = kDefaultBpm;
     double startPpq = 0.0;
+    std::string sourceName;  // 4.7: file name of an imported song (empty for a recording)
     uint64_t version = 0;
     bool hasRecording() const { return spectrogram != nullptr; }
 };

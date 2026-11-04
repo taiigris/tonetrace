@@ -15,6 +15,7 @@ struct Note {
     double onset = 0.0, offset = 0.0;  // seconds in the input
     int pitch = 0;                     // MIDI; GM percussion note for drums
     bool isDrum = false;
+    int program = 0;                   // GM program, 128 for a drum hit (4.7: one MIDI track per instrument)
 };
 
 class Model;  // opaque, owns the loaded weights

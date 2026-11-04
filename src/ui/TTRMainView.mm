@@ -30,6 +30,7 @@ static const CGFloat kMessageSeconds = 4.0, kFollowFraction = 0.85, kDefaultCent
     self.layerContentsRedrawPolicy = NSViewLayerContentsRedrawOnSetNeedsDisplay;
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [self buildSubviews];
+    [self registerSongDrop];
     [self layoutControls];
     _vp->scrollY = (ttr::kMaxNote + 0.5 - kDefaultCenterPitch) * _vp->rowH - _map.bounds.size.height / 2;  // start around the middle of the keyboard
     [self restoreUiSettings];
@@ -198,6 +199,7 @@ static NSString* formatSpeed(double speed) {
     const BOOL grabRunning = _kernel->quickGrabRunning();
     _grabButton.title = grabRunning ? @"Cancel" : @"Grab";
     _grabButton.isEnabled = grabRunning || (!busy && hasRecording);
+    _loadSongButton.isEnabled = !busy && !grabRunning;
     _syncButton.isOn = _kernel->syncToHost();
     [self updateEditStates];
     _soloButton.isOn = _kernel->param(ttr::kParamSolo) >= 0.5f;
