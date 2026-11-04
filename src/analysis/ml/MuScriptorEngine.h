@@ -32,12 +32,37 @@ using ChunkCallback = std::function<void(const TranscriptionChunk& chunk)>;
 class NoteTranscriber {
 public:
     virtual ~NoteTranscriber() = default;
-    // 16 kHz mono in; `onChunk` after every chunk. False with a reason on failure or cancel.
-    virtual bool transcribe(const std::vector<float>& audio16k, const ChunkCallback& onChunk, TaskControl* control, std::string* reason) = 0;
+    // 16 kHz mono in; `onChunk` after every chunk. `programs` restricts the model to these instruments (one program per
+    // instrument group, kDrumProgram for drums; empty = every instrument). False with a reason on failure or cancel.
+    virtual bool transcribe(const std::vector<float>& audio16k, const std::vector<int>& programs, const ChunkCallback& onChunk, TaskControl* control,
+                            std::string* reason) = 0;
 };
 
-// Returns the transcriber, or null with a reason (e.g. "model downloading (35 %)"). Asked again on every song until it
-// succeeds, because the model may still be downloading.
+// ---- model size (one choice per machine; the loader reads it) ----
+enum class ModelSize : int { Small = 0, Medium = 1, Large = 2 };
+constexpr int kNumModelSizes = 3;
+constexpr ModelSize kDefaultModelSize = ModelSize::Medium;
+
+struct ModelSizeInfo {
+    const char* id;            // "small" (file names, settings)
+    const char* label;         // "Small"
+    const char* downloadText;  // "209 MB"
+    const char* character;     // "fastest, rougher parts"
+};
+const ModelSizeInfo& modelSizeInfo(ModelSize size);
+bool parseModelSize(const std::string& id, ModelSize* out);
+ModelSize modelSize();
+// Chooses the model for the next transcription: a loaded model of another size is released and the store hook (if any)
+// remembers the choice.
+void setModelSize(ModelSize size);
+// Called with every new choice (the plug-in writes it to its settings file).
+void setModelSizeStore(std::function<void(ModelSize)> store);
+// Whether a size is on this Mac already (no download needed). False without a hook.
+void setModelAvailability(std::function<bool(ModelSize)> isAvailable);
+bool isModelAvailable(ModelSize size);
+
+// Returns the transcriber for modelSize(), or null with a reason (e.g. "model downloading (35 %)"). Asked again on
+// every song until it succeeds, because the model may still be downloading.
 using TranscriberLoader = std::function<std::shared_ptr<NoteTranscriber>(std::string* reason)>;
 
 void setTranscriberLoader(TranscriberLoader loader);
@@ -56,8 +81,9 @@ std::vector<NoteEvent> muscriptorNotes(const std::vector<TranscribedNote>& notes
 
 // Streaming update of a whole-song transcription: all notes so far (converted), how far they are final, progress.
 using SongProgress = std::function<void(const std::vector<NoteEvent>& notes, double finalizedSec, float progress)>;
-// Runs the model on 16 kHz mono audio, calling `onProgress` after every chunk. False with a reason when the model is
-// missing, fails or the task is cancelled ("cancelled").
-bool transcribeSong(const std::vector<float>& audio16k, double bpm, TaskControl* control, const SongProgress& onProgress, std::string* reason);
+// Runs the model on 16 kHz mono audio (restricted to `programs`, empty = every instrument), calling `onProgress` after
+// every chunk. False with a reason when the model is missing, fails or the task is cancelled ("cancelled").
+bool transcribeSong(const std::vector<float>& audio16k, double bpm, const std::vector<int>& programs, TaskControl* control, const SongProgress& onProgress,
+                    std::string* reason);
 
 }  // namespace ttr

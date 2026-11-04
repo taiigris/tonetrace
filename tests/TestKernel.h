@@ -81,8 +81,14 @@ inline void installFakeDecoder(double seconds) {
 class FakeTranscriber : public ttr::NoteTranscriber {
 public:
     FakeTranscriber(std::vector<std::vector<ttr::TranscribedNote>> chunks, bool gated = false) : chunks_(std::move(chunks)), gated_(gated) {}
-    bool transcribe(const std::vector<float>& audio, const ttr::ChunkCallback& onChunk, ttr::TaskControl* control, std::string* reason) override {
+    bool transcribe(const std::vector<float>& audio, const std::vector<int>& programs, const ttr::ChunkCallback& onChunk, ttr::TaskControl* control,
+                    std::string* reason) override {
         samples = audio.size();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            askedPrograms = programs;
+            ++calls;
+        }
         for (size_t i = 0; i < chunks_.size(); ++i) {
             if (gated_) {
                 std::unique_lock<std::mutex> lock(mutex_);
@@ -108,6 +114,14 @@ public:
         released_ = 1 << 20;
         cv_.notify_all();
     }
+    std::vector<int> programsAsked() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return askedPrograms;
+    }
+    int callCount() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return calls;
+    }
     std::atomic<size_t> samples{0};
     std::atomic<int> chunksDone{0};
 
@@ -117,6 +131,8 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;
     int released_ = 0;
+    std::vector<int> askedPrograms;  // the instrument selection of the last call
+    int calls = 0;
 };
 
 // Waits until the kernel's background job is done.

@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "analysis/ml/Resampler.h"
+#include "core/Instruments.h"
 #include "core/Logger.h"
 #include "core/SongAudio.h"
 #include "core/TonetraceKernel.h"
@@ -27,10 +28,11 @@ std::shared_ptr<const SongAudio> storedRecording(const SongAudio& audio) {
 std::vector<uint8_t> TonetraceKernel::saveState() const {
     const DocumentPtr doc = document();
     const double user = exportBpm_.load();
-    if (!doc || !doc->isRecording || !doc->audio) return encodeState(allParams(), doc.get(), mixer(), user);
+    const StateChoices choices{instrumentSelection(), modelFocus()};
+    if (!doc || !doc->isRecording || !doc->audio) return encodeState(allParams(), doc.get(), mixer(), user, choices);
     Document stored = *doc;
     stored.audio = storedRecording(*doc->audio);
-    return encodeState(allParams(), &stored, mixer(), user);
+    return encodeState(allParams(), &stored, mixer(), user, choices);
 }
 
 bool TonetraceKernel::loadState(const uint8_t* data, size_t size) {
@@ -48,6 +50,8 @@ bool TonetraceKernel::loadState(const uint8_t* data, size_t size) {
     {
         std::lock_guard<std::mutex> guard(docMutex_);
         mixer_ = state.mixer;
+        instrumentSelection_ = normalizedSelection(state.instrumentSelection);
+        isModelFocused_ = state.isModelFocused;
     }
     pause();
     seek(0.0);
@@ -56,6 +60,11 @@ bool TonetraceKernel::loadState(const uint8_t* data, size_t size) {
         doc = std::make_shared<Document>(*state.document);
         doc->id = nextDocumentId();
         doc->version = 1;
+        doc->transcription.listenedFor = listenFor();  // analysed with the choice that was saved with it
+        {
+            std::lock_guard<std::mutex> guard(docMutex_);
+            applySelection(*doc);
+        }
         if (doc->audio) {
             doc->peaks = computePeaks(*doc->audio);
             doc->lengthSec = std::max(doc->lengthSec, doc->audio->seconds());

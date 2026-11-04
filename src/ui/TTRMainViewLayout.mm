@@ -1,6 +1,6 @@
 // Construction and layout of the main view (1280 x 800 by default, 1024 x 640 at the minimum):
 //   top bar  | logo · rewind play follow record · time · model · ORIG/MIDI · volume · mute · options
-//   sidebar  | INSTRUMENTS + one strip per instrument, MASTER meter at the bottom
+//   sidebar  | INSTRUMENTS + the instrument choice, one strip per instrument, MASTER meter at the bottom
 //   main     | song title · export tempo · Export MIDI out · Drag MIDI out · clear
 //            | waveform lane with the ruler, piano roll, scroll bar, status line with the zoom slider
 #include <algorithm>
@@ -11,7 +11,9 @@
 
 const CGFloat kTTRTopBarHeight = 72, kTTRSidebarWidth = 300, kTTRSongHeaderHeight = 64, kTTRWaveHeight = 168, kTTRStatusHeight = 36, kTTRScrollHeight = 10,
               kTTRMasterHeight = 64;
-static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
+static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53, kInstrumentPillW = 136;
+static const CGFloat kFullTimeWidth = 206, kShortTimeWidth = 118;  // "00:15.38 / 00:32.00" or "00:15.38"
+static const CGFloat kShortPill = 84;                                // room for "MEDIUM ▾"
 
 @implementation TTRMainView_v1 (Build)
 
@@ -51,7 +53,9 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
     }];
     _recordButton = [self addGlyph:TTRTransportRecord title:nil tip:@"Record the audio playing through this track; stop to transcribe it" action:^{ [weak toggleRecord]; }];
     _modelPill = [[TTRPill_v1 alloc] initWithFrame:NSZeroRect];
-    _modelPill.toolTip = @"Transcription model (MuScriptor medium, runs on this Mac). Downloads 620 MB once on first use; weights CC BY-NC 4.0";
+    _modelPill.toolTip = @"Transcription model (MuScriptor, runs on this Mac): Small (209 MB, fastest), Medium (618 MB, recommended) or Large (2.7 GB, most "
+                         @"accurate). Each size downloads once; weights CC BY-NC 4.0";
+    _modelPill.onClick = ^{ [weak showModelMenu]; };
     [self addSubview:_modelPill];
     _mixSlider = [self addParamSlider:ttr::kParamMix];
     _mixSlider.leftLabel = @"ORIG";
@@ -121,6 +125,11 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
 }
 
 - (void)buildSidebar {
+    __weak TTRMainView_v1* weak = self;
+    _instrumentPill = [[TTRPill_v1 alloc] initWithFrame:NSZeroRect];
+    _instrumentPill.toolTip = @"Choose the instruments to keep (all, or e.g. only drums and bass) and whether the model listens only for them";
+    _instrumentPill.onClick = ^{ [weak showInstrumentPicker]; };
+    [self addSubview:_instrumentPill];
     _strips = [[NSView alloc] initWithFrame:NSZeroRect];
     _strips.wantsLayer = YES;
     _strips.layer.masksToBounds = YES;
@@ -141,7 +150,10 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
     _diag.onMessage = ^(NSString* m) { [weak showMessage:m]; };
     _about = [[TTRAboutView_v1 alloc] initWithFrame:NSZeroRect];
     _about.onOpenDiagnostics = ^{ [weak toggleDiagnostics]; };
-    for (NSView* v in @[ _banner, _diag, _about ]) [self addSubview:v];  // overlays on top
+    _picker = [[TTRInstrumentPicker_v1 alloc] initWithFrame:NSZeroRect];
+    _picker.onApply = ^(const std::vector<int>& programs, BOOL isFocused) { [weak applyInstrumentSelection:programs focused:isFocused]; };
+    _picker.onClose = ^{ [weak refreshNow]; };
+    for (NSView* v in @[ _banner, _diag, _picker, _about ]) [self addSubview:v];  // overlays on top
 }
 
 @end
@@ -160,8 +172,9 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
     return NSMakeRect(header.origin.x, NSMaxY(header), header.size.width, status.origin.y - NSMaxY(header));
 }
 
-// Left to right: logo, transport, time; right to left: options, MUTE, volume, ORIG/MIDI; the model pill takes what is
-// left in the middle and is hidden when the window is too narrow (the status line names the model anyway).
+// Left to right: logo, transport, time; right to left: options, MUTE, volume, ORIG/MIDI; the model pill (the model
+// choice) takes what is left in the middle. In a narrow window the pill drops its "MODEL:" prefix and, rather than
+// disappear, the time its "/ length".
 - (void)layoutTopBar:(CGFloat)W {
     const CGFloat y = (kTTRTopBarHeight - kButton) / 2;
     _logo.frame = NSMakeRect(kPad, y + 7, 150, 26);
@@ -171,9 +184,11 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
         x += kButton + 6;
     }
     x += 12;
-    _timeRect = NSMakeRect(x, y, 206, kButton);
-    x += 206 + 12;
     const BOOL narrow = W < 1260, tight = W < 1150;
+    const CGFloat rightBlock = kButton + kGap + (tight ? kButton : 104) + 12 + (tight ? 110 : narrow ? 120 : 150) + 16 + (tight ? 140 : narrow ? 150 : 176) + 16;
+    const CGFloat timeW = W - kPad - rightBlock - (x + kFullTimeWidth + 12) < kShortPill ? kShortTimeWidth : kFullTimeWidth;
+    _timeRect = NSMakeRect(x, y, timeW, kButton);
+    x += timeW + 12;
     CGFloat right = W - kPad;
     _optionsButton.frame = NSMakeRect(right - kButton, y, kButton, kButton);
     right -= kButton + kGap;
@@ -187,11 +202,12 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
     const CGFloat mixW = tight ? 140 : narrow ? 150 : 176;
     _mixSlider.frame = NSMakeRect(right - mixW, y, mixW, kButton);
     right -= mixW + 16;
-    _modelPill.hidden = right - x < 120;
+    _modelPill.hidden = right - x < kShortPill;
     _modelPill.frame = NSMakeRect(x, y, std::min<CGFloat>(170, right - x), kButton);
 }
 
 - (void)layoutSidebar:(CGFloat)H {
+    _instrumentPill.frame = NSMakeRect(kTTRSidebarWidth - kPad - kInstrumentPillW, kTTRTopBarHeight + (kStripTop - 1 - 32) / 2, kInstrumentPillW, 32);
     const CGFloat top = kTTRTopBarHeight + kStripTop;
     const CGFloat masterY = H - kTTRMasterHeight;
     _strips.frame = NSMakeRect(0, top, kTTRSidebarWidth - 1, std::max<CGFloat>(0, masterY - top));
@@ -212,7 +228,7 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
     CGFloat right = NSMaxX(header) - kPad;
     _clearButton.frame = NSMakeRect(right - kButton, y, kButton, kButton);
     right -= kButton + kGap;
-    const CGFloat dragW = compact ? 160 : 178, exportW = compact ? kButton : 182, tempoW = compact ? 176 : 196;
+    const CGFloat dragW = compact ? 160 : 178, exportW = compact ? kButton : 182, tempoW = compact ? 192 : 196;
     _dragButton.frame = NSMakeRect(right - dragW, y, dragW, kButton);
     right -= dragW + kGap;
     _exportButton.title = compact ? nil : @"Export MIDI out";
@@ -236,6 +252,7 @@ static const CGFloat kPad = 24, kGap = 8, kButton = 40, kStripTop = 53;
     const NSRect area = [self noteAreaRect];
     _banner.frame = NSMakeRect(area.origin.x + 16, area.origin.y + 12, MAX(60, area.size.width - 32), 40);
     _diag.frame = NSMakeRect(kTTRSidebarWidth, kTTRTopBarHeight, W - kTTRSidebarWidth, H - kTTRTopBarHeight);
+    _picker.frame = NSMakeRect(0, kTTRTopBarHeight, W, H - kTTRTopBarHeight);
     _about.frame = self.bounds;
 }
 

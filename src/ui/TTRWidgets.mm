@@ -389,18 +389,51 @@ static const uint32_t kWarning = 0xE08A2E;
 
 // ============================================================ TTRPill_v1
 
-@implementation TTRPill_v1
+@implementation TTRPill_v1 {
+    BOOL _hover;
+    NSTrackingArea* _tracking;
+}
+
+static const CGFloat kPillCaretW = 16;
 
 - (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstMouse:(NSEvent*)event { return YES; }
 - (void)setText:(NSString*)text { if (![_text isEqualToString:text]) { _text = [text copy]; self.needsDisplay = YES; } }
 
+- (void)updateTrackingAreas {
+    [super updateTrackingAreas];
+    if (_tracking) [self removeTrackingArea:_tracking];
+    _tracking = [[NSTrackingArea alloc] initWithRect:self.bounds options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp | NSTrackingInVisibleRect
+                                               owner:self userInfo:nil];
+    [self addTrackingArea:_tracking];
+}
+- (void)mouseEntered:(NSEvent*)e { _hover = _onClick != nil; self.needsDisplay = YES; }
+- (void)mouseExited:(NSEvent*)e { _hover = NO; self.needsDisplay = YES; }
+- (void)mouseDown:(NSEvent*)event {
+    if (_onClick) _onClick();
+    else [super mouseDown:event];
+}
+
 - (void)drawRect:(NSRect)dirty {
-    TTRFillRounded(self.bounds, kTTRRadius, TTR_PANEL_RAISED);
+    const NSRect b = self.bounds;
+    TTRFillRounded(b, kTTRRadius, _hover ? TTR_HOVER : TTR_PANEL_RAISED);
+    if (_onClick) TTRStrokeRounded(b, kTTRRadius, TTR_BORDER);
     NSString* text = _text ?: @"";
+    const NSRect textRect = NSMakeRect(8, 0, b.size.width - 16 - (_onClick ? kPillCaretW : 0), b.size.height);
     NSFont* font = TTRFont(12, NSFontWeightSemibold);
     CGFloat kern = 1.0;
-    if (TTRTextWidth(text, font, kern) > self.bounds.size.width - 16) { font = TTRFont(11, NSFontWeightSemibold); kern = 0.4; }
-    TTRDrawText(text, NSInsetRect(self.bounds, 8, 0), font, TTRHex(_textColor ? _textColor : 0xC9CDD3), NSTextAlignmentCenter, kern);
+    if (TTRTextWidth(text, font, kern) > textRect.size.width) { font = TTRFont(11, NSFontWeightSemibold); kern = 0.4; }
+    if (TTRTextWidth(text, font, kern) > textRect.size.width) { font = TTRFont(10, NSFontWeightSemibold); kern = 0.0; }
+    TTRDrawText(text, textRect, font, TTRHex(_textColor ? _textColor : 0xC9CDD3), NSTextAlignmentCenter, kern);
+    if (!_onClick) return;
+    const NSPoint c = NSMakePoint(b.size.width - 8 - kPillCaretW / 2, NSMidY(b) + 1);
+    NSBezierPath* caret = [NSBezierPath bezierPath];
+    [caret moveToPoint:NSMakePoint(c.x - 4, c.y - 2)];
+    [caret lineToPoint:NSMakePoint(c.x + 4, c.y - 2)];
+    [caret lineToPoint:NSMakePoint(c.x, c.y + 3)];
+    [caret closePath];
+    [TTR_DIM setFill];
+    [caret fill];
 }
 
 @end

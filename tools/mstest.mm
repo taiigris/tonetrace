@@ -1,8 +1,10 @@
 // The transcription with the real model on real music: muscriptor.cpp's own 15 s test excerpt (a rock band, CC BY 4.0,
 // fetched into the build tree, never committed), loaded as a song file the way the editor does it (Core Audio -> kernel ->
 // MuScriptor). Checks that the notes arrive chunk by chunk while the song already plays, that the plug-in path finds the
-// same notes as calling the library directly, speed, silence, a missing model, and one MIDI track per instrument.
+// same notes as calling the library directly, speed, silence, a missing model, one MIDI track per instrument, and a
+// re-analysis that listens only for bass and drums. Further model files (small, large) are each loaded and run once.
 // Prints MSTEST PASSED / MSTEST FAILED / MSTEST SKIPPED (no model on this machine or Intel; run by build.sh).
+//   tonetrace_mstest [model.gguf] [fixture.wav] [more-models.gguf ...]
 // Model: argv[1], else ~/Library/Tonetrace/models/muscriptor-medium-f16.gguf (downloaded by the plug-in on first use).
 #include <algorithm>
 #include <chrono>
@@ -64,7 +66,7 @@ void songTest(const std::string& model, const std::string& fixture) {
     std::string why;
     std::shared_ptr<msb::Model> direct = msb::load(model, &why);
     std::vector<msb::Note> reference;
-    check(direct && msb::transcribe(*direct, audio16k.data(), audio16k.size(), &reference, {}, {}, &why), "direct library call runs");
+    check(direct && msb::transcribe(*direct, audio16k.data(), audio16k.size(), {}, &reference, {}, {}, &why), "direct library call runs");
     direct.reset();
 
     TonetraceKernel k;
@@ -121,10 +123,50 @@ void songTest(const std::string& model, const std::string& fixture) {
     k.deactivate();
 }
 
+// The plug-in path with an instrument selection: only bass and drums may come back, and both do.
+void selectionTest(const std::string& fixture) {
+    TonetraceKernel k;
+    k.prepare(tk::kRate, tk::kBlock);
+    k.setHostTransport(120.0, 0.0);
+    k.setInstrumentSelection({33, kDrumProgram});
+    const auto t0 = std::chrono::steady_clock::now();
+    check(k.loadSong(fixture) && tk::waitIdle(k, 120000), "the song is transcribed listening for bass and drums only");
+    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    const DocumentPtr doc = k.document();
+    if (!doc) return;
+    const std::vector<InstrumentSummary> instruments = instrumentsIn(doc->notes);
+    std::printf("     bass + drums: %zu notes in %.1f s:", doc->notes.size(), secs);
+    for (const InstrumentSummary& s : instruments) std::printf(" %s(%d)", instrumentName(s.program).c_str(), s.noteCount);
+    std::printf("\n");
+    const bool onlyThose = std::all_of(instruments.begin(), instruments.end(), [](const InstrumentSummary& s) {
+        return s.program == kDrumProgram || instrumentFamily(s.program) == InstrumentFamily::Bass;
+    });
+    const bool both = std::any_of(instruments.begin(), instruments.end(), [](const InstrumentSummary& s) { return s.program == kDrumProgram; }) &&
+                      std::any_of(instruments.begin(), instruments.end(), [](const InstrumentSummary& s) { return instrumentFamily(s.program) == InstrumentFamily::Bass; });
+    check(doc->transcription.phase == TranscriptionPhase::Done && onlyThose && both, "only the selected instruments come back (bass and drums), both found");
+    k.deactivate();
+}
+
+// Another checkpoint (small, large): loads, runs on the fixture, finds several instruments incl. drums.
+void otherSizeTest(const std::string& model, const std::vector<float>& audio16k) {
+    const std::string name = model.substr(model.find_last_of('/') + 1);
+    const auto t0 = std::chrono::steady_clock::now();
+    std::string why;
+    std::shared_ptr<msb::Model> loaded = msb::load(model, &why);
+    std::vector<msb::Note> notes;
+    const bool ok = loaded && msb::transcribe(*loaded, audio16k.data(), audio16k.size(), {}, &notes, {}, {}, &why);
+    const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    std::set<int> programs;
+    for (const msb::Note& n : notes) programs.insert(n.isDrum ? kDrumProgram : n.program);
+    std::printf("     %s: %zu notes, %zu instruments in %.1f s (incl. load)%s%s\n", name.c_str(), notes.size(), programs.size(), secs, ok ? "" : " - ",
+                ok ? "" : why.c_str());
+    check(ok && notes.size() >= 20 && programs.size() >= 3 && programs.count(kDrumProgram), ("the " + name + " checkpoint transcribes the band incl. drums").c_str());
+}
+
 void silenceTest() {
     std::string why;
     std::vector<NoteEvent> notes;
-    const bool ok = transcribeSong(std::vector<float>(size_t(3.0 * kMuScriptorRate), 0.0f), 120.0, nullptr,
+    const bool ok = transcribeSong(std::vector<float>(size_t(3.0 * kMuScriptorRate), 0.0f), 120.0, {}, nullptr,
                                    [&](const std::vector<NoteEvent>& n, double, float) { notes = n; }, &why);
     check(ok && notes.empty(), "silence gives no notes");
 }
@@ -146,8 +188,11 @@ int main(int argc, char** argv) {
         return failures == 0 ? 0 : 1;
     }
     setenv(kMuScriptorModelEnv, model.c_str(), 1);  // the loader is asked again on the next song and finds it now
-    songTest(model, argc > 2 ? argv[2] : TONETRACE_MS_FIXTURE);
+    const std::string fixture = argc > 2 && *argv[2] ? argv[2] : TONETRACE_MS_FIXTURE;
+    songTest(model, fixture);
+    selectionTest(fixture);
     silenceTest();
+    for (int i = 3; i < argc; ++i) otherSizeTest(argv[i], readFixture(fixture));
     std::printf("%s\n", failures == 0 ? "MSTEST PASSED" : "MSTEST FAILED");
     return failures == 0 ? 0 : 1;
 }

@@ -1,6 +1,7 @@
 #pragma once
 #import "ui/TTRAbout.h"
 #import "ui/TTRControls.h"
+#import "ui/TTRInstrumentPicker.h"
 #import "ui/TTRInstrumentStrip.h"
 #import "ui/TTRLogo.h"
 #import "ui/TTRMainView.h"
@@ -21,10 +22,11 @@
     // top bar
     TTRLogoView_v1* _logo;
     TTRGlyphButton_v1 *_rewindButton, *_playButton, *_followButton, *_recordButton, *_muteButton, *_optionsButton;
-    TTRPill_v1* _modelPill;
+    TTRPill_v1* _modelPill;      // opens the model-size menu
     TTRLineSlider_v1 *_mixSlider, *_volumeSlider;
     NSRect _timeRect;
     // sidebar
+    TTRPill_v1* _instrumentPill;  // opens the instrument picker
     NSView* _strips;  // container of the instrument strips (scrolls with the wheel)
     std::map<int, TTRInstrumentStrip_v1*> _stripByProgram;
     CGFloat _stripScroll;
@@ -40,6 +42,7 @@
     // overlays
     TTRBannerView_v1* _banner;
     TTRDiagnosticsView_v1* _diag;
+    TTRInstrumentPicker_v1* _picker;
     TTRAboutView_v1* _about;
     // state of the last refresh
     ttr::DocumentPtr _doc;
@@ -89,6 +92,14 @@ extern const double kTTRActiveHz, kTTRIdleHz;
 - (void)rebuildStripsIfNeeded;
 - (void)updateStrips;
 - (void)setParam:(int)paramId value:(float)value;
+@end
+
+// The model choices: size (menu on the model pill) and the instruments it listens for (picker from the sidebar).
+@interface TTRMainView_v1 (Choices)
+- (void)showModelMenu;
+- (void)chooseModelSize:(int)size;  // ttr::ModelSize; re-analyses a loaded song
+- (void)showInstrumentPicker;
+- (void)applyInstrumentSelection:(const std::vector<int>&)programs focused:(BOOL)isFocused;  // re-analyses when needed
 @end
 
 @interface TTRMainView_v1 (System)

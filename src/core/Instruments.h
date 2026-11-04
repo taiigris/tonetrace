@@ -31,4 +31,17 @@ bool pitchRangeOf(const std::vector<NoteEvent>& notes, int program, int* lowest,
 // "C4", "F#2".
 std::string noteName(int pitch);
 
+// ---- instrument selection (what the model listens for) ----
+// The 35 instruments the model can be asked for (34 groups plus drums), one program each, ordered by family.
+const std::vector<int>& selectableInstruments();
+// "Keys", "Guitars", "Bass", ...
+std::string instrumentFamilyName(InstrumentFamily family);
+// Sorted, unique, only selectable programs; a selection of every instrument becomes empty (= all, the model's
+// unrestricted path, which also finds the rarer instruments without a group).
+std::vector<int> normalizedSelection(const std::vector<int>& programs);
+// "All instruments", "Drums + Bass", "5 instruments".
+std::string selectionSummary(const std::vector<int>& programs);
+// The notes of the selected instruments (all notes for an empty selection).
+std::vector<NoteEvent> notesOfInstruments(const std::vector<NoteEvent>& notes, const std::vector<int>& selection);
+
 }  // namespace ttr

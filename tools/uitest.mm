@@ -1,6 +1,7 @@
 // UI interaction test: drives the real view (real kernel, the demo song through a fake model) with synthetic mouse and
 // key events: load, play while the notes arrive, strips per instrument, mute / solo / fader, seek, zoom, export tempo,
-// mute input, record, clear, diagnostics, About, banners, and a layout check at the default and the minimum size.
+// model size and instrument choice (keep / focus), mute input, record, clear, diagnostics, About, banners, and a layout
+// check at the default and the minimum size.
 #import <Cocoa/Cocoa.h>
 
 #include <cmath>
@@ -33,7 +34,7 @@ int layoutProblems(TTRMainView_v1* view, const char* where) {
     int problems = 0;
     NSMutableArray<NSView*>* visible = [NSMutableArray array];
     for (NSView* v in view.subviews)
-        if (!v.hidden && v != view->_banner && v != view->_diag && v != view->_about) [visible addObject:v];
+        if (!v.hidden && v != view->_banner && v != view->_diag && v != view->_about && v != view->_picker) [visible addObject:v];
     for (NSUInteger i = 0; i < visible.count; ++i) {
         const NSRect a = visible[i].frame;
         if (!NSContainsRect(view.bounds, a)) {
@@ -145,6 +146,53 @@ int main() {
         check(kernel->mixer().isAudible(33) && !kernel->mixer().isAudible(26) && !stripFor(view, 26).isAudible, "S solos the bass, the others dim");
         if (soloToggle) clickCentre(soloToggle);
         check(kernel->mixer().isAudible(26), "S again ends the solo");
+
+        printf("model size and instruments\n");
+        check([view->_modelPill.text isEqualToString:@"MODEL: MEDIUM"] && [view->_instrumentPill.text isEqualToString:@"ALL"], "the pills name the model and \"all\" instruments");
+        setTranscriberLoader([model](std::string*) -> std::shared_ptr<NoteTranscriber> { return model; });  // any size: the demo model
+        const int callsBefore = model->callCount();
+        [view chooseModelSize:int(ModelSize::Small)];
+        check(modelSize() == ModelSize::Small && [view->_modelPill.text isEqualToString:@"MODEL: SMALL"], "choosing Small switches the model");
+        check(tk::waitFor([&] { return model->callCount() == callsBefore + 1 && kernel->document()->transcription.phase == TranscriptionPhase::Done; }),
+              "a loaded song is analysed again with the new model");
+        [view chooseModelSize:int(ModelSize::Medium)];
+        tk::waitIdle(*kernel);
+        TTRInstrumentPicker_v1* picker = view->_picker;
+        clickCentre(view->_instrumentPill);
+        check(picker.isShowing && [picker selection].empty() && !picker.isFocused, "the instrument pill opens the picker with every instrument");
+        [picker selectAll:NO];
+        [picker toggleProgram:33];
+        [picker toggleFamilyOf:kDrumProgram];
+        check([picker selection] == std::vector<int>({33, kDrumProgram}), "single instruments and families toggle");
+        const int callsKeep = model->callCount();
+        [picker apply];
+        [view refreshNow];
+        check(!picker.isShowing && kernel->instrumentSelection() == std::vector<int>({33, kDrumProgram}) && !kernel->isWorking() && model->callCount() == callsKeep,
+              "keeping bass and drums applies at once, without a new analysis");
+        check(view->_stripByProgram.size() == 2 && [view->_instrumentPill.text isEqualToString:@"BASS + DRUMS"], "only their strips remain, the pill names them");
+        check(parseMidiFile(kernel->buildMidi()).tracks == 3, "the export holds the two kept instruments");
+        clickCentre(view->_instrumentPill);
+        picker.isFocused = YES;
+        [picker apply];
+        check(kernel->modelFocus() && tk::waitFor([&] { return model->callCount() == callsKeep + 1 && !kernel->isWorking(); }) &&
+                  model->programsAsked() == std::vector<int>({33, kDrumProgram}),
+              "with focus the model is asked again, for bass and drums only");
+        clickCentre(view->_instrumentPill);
+        [picker mouseDown:mouse(NSEventTypeLeftMouseDown, picker, NSMakePoint(4, 4))];
+        check(!picker.isShowing, "a click beside the panel closes the picker unchanged");
+        clickCentre(view->_instrumentPill);
+        [picker keyDown:key(picker, @"\x1b", 53)];
+        check(!picker.isShowing && kernel->modelFocus(), "Escape closes it unchanged");
+        clickCentre(view->_instrumentPill);
+        [picker selectAll:YES];
+        picker.isFocused = NO;
+        [picker apply];
+        check(tk::waitFor([&] { return model->callCount() == callsKeep + 2 && !kernel->isWorking(); }) && model->programsAsked().empty(),
+              "back to every instrument: the model hears everything again");
+        [view refreshNow];
+        check(view->_stripByProgram.size() == 5 && [view->_instrumentPill.text isEqualToString:@"ALL"], "all five strips are back");
+        setTranscriberLoader(nullptr);
+        setTranscriber(model);
 
         printf("seek, zoom, scroll\n");
         TTRPianoRoll_v1* roll = view->_roll;

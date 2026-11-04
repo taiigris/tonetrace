@@ -66,14 +66,22 @@ std::shared_ptr<Model> load(const std::string& path, std::string* reason) {
     }
 }
 
-bool transcribe(Model& model, const float* samples, size_t count, std::vector<Note>* out, const std::function<bool()>& cancel,
-                const UpdateCallback& onUpdate, std::string* reason) {
+bool transcribe(Model& model, const float* samples, size_t count, const std::vector<int>& programs, std::vector<Note>* out,
+                const std::function<bool()>& cancel, const UpdateCallback& onUpdate, std::string* reason) {
     std::lock_guard<std::mutex> lock(model.mutex);  // one call at a time per instance (KV cache)
     if (!model.transcriber) {
         if (reason) *reason = "the model was released";
         return false;
     }
-    msl::TranscribeOptions options;  // no instrument selection: every instrument, drums included
+    msl::TranscribeOptions options;  // empty instrument list: every instrument, drums included
+    for (int program : programs) {
+        const std::optional<msl::InstrumentGroup> group = msl::instrumentGroupFor(program);
+        if (!group) {
+            if (reason) *reason = "the model has no instrument group for program " + std::to_string(program);
+            return false;
+        }
+        if (std::find(options.instruments.begin(), options.instruments.end(), *group) == options.instruments.end()) options.instruments.push_back(*group);
+    }
     if (cancel) options.should_cancel = cancel;
     std::vector<Note> fresh;
     const msl::NoteCallback onChunk = [&](const msl::TranscriptionUpdate& update) {

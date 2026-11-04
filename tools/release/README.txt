@@ -1,4 +1,4 @@
-Tonetrace 5 (macOS, VST3, Apple Silicon fuer die Transkription)
+Tonetrace 5.1 (macOS, VST3, Apple Silicon fuer die Transkription)
 
 Installation
   1. In diesem Ordner im Terminal ausfuehren:  ./install.sh
@@ -8,8 +8,10 @@ Installation
   3. Tonetrace auf eine Spur legen, einen Song ins Fenster ziehen (wav, aiff, mp3, m4a, flac, caf; bis 10 min)
      oder Record druecken und die Spur abspielen. Die Noten erscheinen Schritt fuer Schritt, Play geht sofort.
   4. "Drag MIDI out" in die Arrangement-Ansicht ziehen: eine MIDI-Spur pro Instrument, Drums auf Kanal 10.
+  5. Optional: "ALL" neben INSTRUMENTS waehlt die Instrumente (35 einzeln), "MODEL" oben die Modellgroesse
+     (Small 209 MB, Medium 618 MB, Large 2,7 GB).
 
-Beim ersten Song laedt das Plug-in das Transkriptionsmodell (620 MB, einmalig, SHA256-geprueft) nach
+Beim ersten Song laedt das Plug-in das gewaehlte Transkriptionsmodell (einmalig, SHA256-geprueft) nach
 ~/Library/Tonetrace/models/. Die Modellgewichte (MuScriptor, Kyutai/Mirelo) stehen unter CC BY-NC 4.0: nur
 nicht-kommerzielle Nutzung.
 

@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/logo.png" alt="Tonetrace" width="600"></p>
 
-**Tonetrace** is a macOS VST3 effect that turns a whole song into MIDI: drop an audio file on it (or record the track), and the MuScriptor model transcribes every instrument - drums included - while you can already play the song and watch the notes appear. Drag the result into your DAW as one MIDI track per instrument. The layout follows NeuralNote. Everything below is in German.
+**Tonetrace** is a macOS VST3 effect that turns a whole song into MIDI: drop an audio file on it (or record the track), and the MuScriptor model transcribes every instrument - drums included - while you can already play the song and watch the notes appear. Drag the result into your DAW as one MIDI track per instrument. Choose the model size (small, medium, large) and exactly which of its 35 instruments you want. The layout follows NeuralNote. Everything below is in German.
 
-Tonetrace 5.0: Song ins Fenster ziehen oder aufnehmen, alle Instrumente werden erkannt und getrennt, die Noten erscheinen Schritt für Schritt in der Piano Roll, Wiedergabe geht sofort, Export als MIDI mit einer Spur pro Instrument.
+Tonetrace 5.1: Song ins Fenster ziehen oder aufnehmen, alle Instrumente werden erkannt und getrennt, die Noten erscheinen Schritt für Schritt in der Piano Roll, Wiedergabe geht sofort, Export als MIDI mit einer Spur pro Instrument. Modellgröße (Small, Medium, Large) und Instrumente (35 einzeln wählbar) bestimmst du selbst.
 
 ![Tonetrace](docs/screenshot.png)
 
@@ -14,23 +14,28 @@ Tonetrace 5.0: Song ins Fenster ziehen oder aufnehmen, alle Instrumente werden e
 - **Wiedergabe während der Analyse**: Play ist aktiv, sobald die Datei dekodiert ist (wenige Sekunden). Gespielt werden das Original und die Noten (eigener Synth, Drums als kleines GM-Kit), Balance mit **ORIG – MIDI**, Lautstärke **VOL**, **MUTE** stummt das Signal der Spur selbst.
 - **Instrumente übersichtlich**: links eine Leiste pro erkanntem Instrument (Farb-Chip, Name, Notenzahl und Tonumfang bzw. „hits · kit map“), **M**/**S**, Fader mit dB-Wert und Pegelanzeige. Jede Instrumentfamilie hat ihre Farbe in der Piano Roll; stumme Instrumente werden gedimmt. Hover über eine Note zeigt Ton und Instrument.
 - **Wellenform oben, Piano Roll darunter** (wie NeuralNote): Klick oder Ziehen setzt den Playhead, Cmd+Rad oder Pinch zoomt, Rad scrollt, Option+Rad ändert die Zeilenhöhe, **[|]** folgt dem Playhead, der Zoom-Regler unten rechts zeigt ganz links den ganzen Song.
+- **Instrumente auswählen**: Klick auf **ALL ▾** neben „INSTRUMENTS“ öffnet die Auswahl mit allen 35 Instrumenten des Modells, nach Familien geordnet (Keys, Mallets & Perc., Organ, Guitars, Bass, Strings, Voice, Brass, Reeds, Winds, Synths, Drums; ein Klick auf die Familie schaltet sie ganz). Zwei Arten:
+  - **Keep only these** (Standard): das Modell hört alles, angezeigt, gespielt und exportiert werden nur die gewählten Instrumente. Exakte Zuordnung, die Änderung wirkt sofort, ohne neue Analyse; „All“ holt alles zurück.
+  - **Model listens only for these**: das Modell wird auf die gewählten Instrumente beschränkt (Konditionierung von MuScriptor) und analysiert neu. Holt leise Parts besser heraus, kann aber Noten anderer Instrumente diesen zuschreiben (im Test: nur Bass + Drums → das Gitarrenriff landet im Bass).
+  ![Instrumentauswahl](docs/screenshot-instruments.png)
+- **Modell wählen**: Klick auf **MODEL: MEDIUM ▾** in der Kopfzeile: **Small** (209 MB, am schnellsten, gröber), **Medium** (618 MB, empfohlen) oder **Large** (2,7 GB, am genauesten, am langsamsten). Ein geladener Song wird mit dem neuen Modell sofort neu analysiert, die Wiedergabe läuft weiter. Die Wahl gilt für alle Instanzen auf diesem Mac und bleibt gespeichert (`~/Library/Tonetrace/model-size`).
 - **MIDI-Export**: **Drag MIDI out** (in die Arrangement-Ansicht ziehen) oder **Export MIDI out** (Datei speichern): SMF Typ 1, eine Spur pro hörbarem Instrument mit Name und Program Change, Drums auf Kanal 10, ab Songanfang, Tempo aus **EXPORT TEMPO** (Standard: Host-Tempo). Mute/Solo bestimmen, was exportiert wird.
-- **Modell**: beim ersten Song lädt das Plug-in das Modell (620 MB) einmalig von Hugging Face nach `~/Library/Tonetrace/models/` (SHA256-geprüft); der Song ist währenddessen schon abspielbar, die Transkription startet von selbst, sobald das Modell da ist. **Die Modellgewichte sind CC BY-NC 4.0 – nur nicht-kommerzielle Nutzung.**
-- **Projekt-State**: Noten mit Instrument, Mixer, Export-Tempo und Songpfad werden gespeichert; der Song wird beim Öffnen des Projekts wieder von der Datei gelesen (die Noten werden nicht neu berechnet). Eine Aufnahme wird mit ihrem Audio gespeichert (mono, 22 kHz).
+- **Modell-Download**: jede Größe wird beim ersten Gebrauch einmalig von Hugging Face nach `~/Library/Tonetrace/models/` geladen (SHA256-geprüft); der Song ist währenddessen schon abspielbar, die Transkription startet von selbst, sobald das Modell da ist. Das Modellmenü zeigt, welche Größen schon auf dem Mac sind. **Die Modellgewichte sind CC BY-NC 4.0 – nur nicht-kommerzielle Nutzung.**
+- **Projekt-State**: alle erkannten Noten mit Instrument, Instrumentauswahl, Mixer, Export-Tempo und Songpfad werden gespeichert; der Song wird beim Öffnen des Projekts wieder von der Datei gelesen (die Noten werden nicht neu berechnet). Eine Aufnahme wird mit ihrem Audio gespeichert (mono, 22 kHz).
 - Kein JUCE; Fremdcode nur das VST3 SDK (Hülle) und muscriptor.cpp + ggml (MIT; beim Build geladen, Commit fest).
 
 ## Systemanforderungen
 
 - macOS 12 oder neuer; die Transkription braucht **Apple Silicon** (auf Intel läuft das Plug-in, meldet aber „needs an Apple Silicon Mac“)
 - VST3-fähiger Host: Ableton Live 12, FL Studio (macOS) und andere VST3-Hosts
-- einmalig Internet für das Modell (620 MB) und genug Speicher (Modell plus ca. 200 MB für einen 10-Minuten-Song)
+- einmalig Internet für das Modell (Small 209 MB, Medium 618 MB, Large 2,7 GB) und genug Speicher (Modell plus ca. 200 MB für einen 10-Minuten-Song; Large braucht rund 3 GB Arbeitsspeicher)
 
 ## Installation
 
-Aus der ZIP `Tonetrace-5.0.0-macOS.zip` (selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`):
+Aus der ZIP `Tonetrace-5.1.0-macOS.zip` (selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`):
 
 ```bash
-unzip Tonetrace-5.0.0-macOS.zip && cd Tonetrace-5.0.0
+unzip Tonetrace-5.1.0-macOS.zip && cd Tonetrace-5.1.0
 ./install.sh
 ```
 
@@ -42,7 +47,7 @@ unzip Tonetrace-5.0.0-macOS.zip && cd Tonetrace-5.0.0
 xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Tonetrace.vst3
 ```
 
-**Deinstallation:** `./uninstall.sh` (entfernt auch eine alte Live-Bridge aus Tonetrace 4; mit `--logs` zusätzlich den Log-Ordner). Das Modell in `~/Library/Tonetrace/models/` und exportierte MIDI-Dateien in `~/Music/Tonetrace` bleiben erhalten.
+**Deinstallation:** `./uninstall.sh` (entfernt auch eine alte Live-Bridge aus Tonetrace 4; mit `--logs` zusätzlich den Log-Ordner). Die Modelle in `~/Library/Tonetrace/models/`, die Modellwahl in `~/Library/Tonetrace/model-size` und exportierte MIDI-Dateien in `~/Music/Tonetrace` bleiben erhalten (zum Entfernen den Ordner `~/Library/Tonetrace` löschen).
 
 ## Einrichtung im Host
 
@@ -55,7 +60,7 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Tonetrace.vst3
 1. Tonetrace auf eine Spur legen und das Fenster öffnen.
 2. Einen Song ins Fenster ziehen (oder **Open song…**). Nach wenigen Sekunden erscheint die Wellenform.
 3. **▶** (oder Leertaste) – der Song spielt, während die Noten Abschnitt für Abschnitt erscheinen. Links tauchen die Instrumente auf.
-4. Mit **M**/**S** und den Fadern abhören, mit **ORIG – MIDI** zwischen Original und Noten überblenden.
+4. Mit **M**/**S** und den Fadern abhören, mit **ORIG – MIDI** zwischen Original und Noten überblenden. Nur bestimmte Instrumente gewünscht? **ALL ▾** neben „INSTRUMENTS“ anklicken und auswählen. Anderes Modell? **MODEL ▾** oben anklicken.
 5. **EXPORT TEMPO** auf das Songtempo stellen und **Drag MIDI out** in die Arrangement-Ansicht ziehen: eine MIDI-Spur pro Instrument.
 
 ### Tasten
@@ -94,7 +99,7 @@ cd ../..
 |---|---|
 | `./build.sh` | Build, Unit-Tests, Transkriptionstest (echtes Modell, wenn vorhanden), UI-Test, Benchmark, Installation, Signierung, validator, Hosttest, Screenshots, Absturzbericht-Prüfung |
 | `./build.sh --no-install` | Build, Unit-Tests, Transkriptionstest und UI-Test |
-| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-5.0.0-macOS.zip` |
+| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-5.1.0-macOS.zip` |
 
 muscriptor.cpp + ggml werden als arm64-Unterbuild geholt (festes Commit) und per `lipo` mit einem x86_64-Stub vereint. Die Version steht nur in `VERSION`.
 
@@ -120,14 +125,14 @@ Gemessen mit `tonetrace_bench` (Release, nativ), Details in `docs/PERFORMANCE.md
 
 - Audio-Thread (48 kHz, 64 Frames): Leerlauf 0,01 %, Aufnahme 0,01 %, Song + Noten aller Instrumente 0,3 % im Mittel, Spitze unter 2 % (Ziel: Mittel < 5 %, Spitze < 25 %). Keine Allokation, keine Locks.
 - Speicher: leere Instanz ca. 6 MB, mit einem 10-Minuten-Song ca. 195 MB (plus Modell).
-- Transkription: ca. ein Drittel der Songlänge auf Apple Silicon (5 min Song in ca. 112 s inkl. Laden des Modells), die Noten kommen alle 5 s Audio.
+- Transkription (Medium): ca. ein Drittel der Songlänge auf Apple Silicon (5 min Song in ca. 112 s inkl. Laden des Modells), die Noten kommen alle 5 s Audio. 15-s-Testausschnitt inkl. Laden: Small 2,4 s, Medium 5,7 s, Large 19 s.
 - Editor: ein ganzes Bild (1280 × 800, 5 Instrumente, Wiedergabe) ca. 4 ms.
 
 ## Bekannte Einschränkungen
 
 - Ableton Live und FL Studio wurden bei der Entwicklung nicht gestartet: geprüft sind Hosttest, UI-Test, validator und der Transkriptionstest.
 - Das Songtempo wird nicht erkannt: **EXPORT TEMPO** vor dem Export auf das Songtempo stellen (Standard ist das Host-Tempo).
-- Die Instrumente sind die Gruppen des Modells (z. B. „Distorted Guitar“, „Synth Pad“); zwei gleiche Instrumente landen in einer Spur. Das Modell sagt keine Anschlagstärke voraus (alle Noten Velocity 100).
+- Die Instrumente sind die 35 Gruppen des Modells (z. B. „Distorted Guitar“, „Synth Pad“); zwei gleiche Instrumente landen in einer Spur. Mit „Model listens only for these“ kann das Modell Noten nicht gewählter Instrumente den gewählten zuschreiben; „Keep only these“ tut das nie. Das Modell sagt keine Anschlagstärke voraus (alle Noten Velocity 100).
 - Auf rein synthetischen Klängen (nackter Sägezahn, Sinus) ist das Modell unzuverlässig; auf echten Tracks liefert es auch Pad-Akkorde, die man ggf. stummschaltet.
 - Die Noten-Wiedergabe ist ein einfacher Synth zum Abhören, kein Instrument-Sound.
 - Ist die Songdatei beim Öffnen des Projekts nicht mehr da, bleiben die Noten, das Original ist stumm (Hinweis im Banner).
@@ -135,6 +140,14 @@ Gemessen mit `tonetrace_bench` (Release, nativ), Details in `docs/PERFORMANCE.md
 - Der Editor funktioniert nur, wenn Processor und Controller im selben Prozess laufen (alle gängigen Mac-Hosts).
 
 ## Changelog
+
+### 5.1.0 – Modell- und Instrumentauswahl
+
+- **Modellgröße wählbar:** Menü an der Modellanzeige oben: Small (209 MB), Medium (618 MB, Standard) oder Large (2,7 GB), jeweils mit eigenem Download (SHA256-geprüft) und Anzeige, ob die Größe schon auf dem Mac ist. Die Wahl gilt global und bleibt gespeichert; ein geladener Song wird sofort neu analysiert, während er weiterspielt. In schmalen Fenstern wird die Anzeige kürzer („MEDIUM ▾“) statt zu verschwinden.
+- **Instrumente einzeln wählbar:** Auswahl mit allen 35 Instrumenten des Modells nach Familien (Familie als Ganzes umschaltbar, All/None, Escape/Return). „Keep only these“ filtert die volle Analyse sofort; „Model listens only for these“ beschränkt das Modell selbst (MuScriptor-Konditionierung) und analysiert neu. Strips, Piano Roll, Wiedergabe und Export zeigen nur die gewählten Instrumente.
+- **Neuanalyse:** neue Analyse desselben Songs ohne Neuladen; Aktualisierungen einer abgelösten Analyse werden verworfen.
+- **State v7:** Instrumentauswahl, Modus und alle erkannten Noten (die Auswahl lässt sich nach dem Öffnen eines Projekts ändern); v6-Projekte (5.0) laden weiter.
+- **Tests:** 9 neue Unit-Tests (Auswahl, Modellgrößen, Filter ohne Neuanalyse, Fokus mit Neuanalyse, verworfene Spät-Updates, State v7/v6), 13 neue UI-Prüfungen, mstest prüft Bass + Drums mit dem echten Modell und lädt optional weitere Größen (Small und Large auf dem 15-s-Testausschnitt: 451 bzw. 466 Noten, Gitarre, Bass, Drums).
 
 ### 5.0.0 – Neugestaltung nach NeuralNote
 

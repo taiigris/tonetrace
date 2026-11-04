@@ -59,10 +59,11 @@ typedef NS_ENUM(NSInteger, TTRTransportGlyph_v1) {
 @property(nonatomic) float level;
 @end
 
-// Rounded label ("MODEL: MEDIUM").
+// Rounded label ("MODEL: MEDIUM"); with onClick a button that opens a choice (hover, a small ▾ at the right).
 @interface TTRPill_v1 : NSView
 @property(nonatomic, copy) NSString* text;
 @property(nonatomic) uint32_t textColor;
+@property(nonatomic, copy) void (^onClick)(void);
 @end
 
 // Draws the three-letter instrument chip (rounded square, instrument colour) used by the strips and the drop zone.

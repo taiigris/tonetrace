@@ -14,6 +14,7 @@ constexpr uint32_t kMagic = 0x31525454;  // "TTR1"
 constexpr size_t kHeaderBytes = 16;      // magic, version, payload size, CRC32
 constexpr uint32_t kMaxNotesInState = 400000;
 constexpr uint32_t kMaxMixEntries = 256;
+constexpr size_t kMaxSelection = 64;  // more than the 35 instruments the model knows
 constexpr size_t kMaxStringBytes = 4096;
 constexpr double kMinClipRate = 8000.0, kMaxClipRate = 192000.0;
 constexpr double kMaxLengthSec = 3600.0;
@@ -75,7 +76,7 @@ bool readHeader(const uint8_t* data, size_t size, uint32_t* version, const uint8
     if (head.get<uint32_t>() != kMagic) return fail(reason, "not a Tonetrace state (bad signature)");
     *version = head.get<uint32_t>();
     if (*version > kStateFormatVersion) return fail(reason, "the state was saved by a newer Tonetrace version");
-    if (*version < kStateFormatVersion) return fail(reason, "the state was saved by Tonetrace 4 - version 5 starts with a new song (load the song again)");
+    if (*version < kOldestReadableStateVersion) return fail(reason, "the state was saved by Tonetrace 4 - version 5 starts with a new song (load the song again)");
     if (size < kHeaderBytes) return fail(reason, "the state is truncated");
     const uint32_t length = head.get<uint32_t>(), crc = head.get<uint32_t>();
     if (length != size - kHeaderBytes) return fail(reason, "the state is truncated or has extra data");
@@ -125,6 +126,25 @@ bool getMixer(Reader& r, MixerState* out) {
     return true;
 }
 
+void putSelection(Writer& w, const std::vector<int>& programs) {
+    const size_t n = std::min<size_t>(programs.size(), kMaxSelection);
+    w.put<uint8_t>(uint8_t(n));
+    for (size_t i = 0; i < n; ++i) w.put<int16_t>(int16_t(programs[i]));
+}
+
+bool getSelection(Reader& r, std::vector<int>* out) {
+    const uint8_t n = r.get<uint8_t>();
+    if (!r.ok() || n > kMaxSelection) return false;
+    std::vector<int> programs;
+    for (uint8_t i = 0; i < n; ++i) {
+        const int program = r.get<int16_t>();
+        if (!r.ok() || program < 0 || program > kMaxProgram) return false;
+        programs.push_back(program);
+    }
+    *out = programs;
+    return true;
+}
+
 void putAudio(Writer& w, const SongAudio& audio) {
     w.put<double>(audio.sampleRate);
     w.put<uint8_t>(uint8_t(audio.channels));
@@ -154,9 +174,10 @@ void putDocument(Writer& w, const Document& doc) {
     const TranscriptionPhase phase = doc.transcription.isActive() ? TranscriptionPhase::Cancelled : doc.transcription.phase;
     w.put<uint8_t>(uint8_t(phase));
     w.put<double>(doc.transcription.finalizedSec);
-    w.put<uint32_t>(uint32_t(std::min<size_t>(doc.notes.size(), kMaxNotesInState)));
+    const std::vector<NoteEvent>& notes = doc.detectedNotes.empty() ? doc.notes : doc.detectedNotes;  // everything detected
+    w.put<uint32_t>(uint32_t(std::min<size_t>(notes.size(), kMaxNotesInState)));
     size_t written = 0;
-    for (const NoteEvent& n : doc.notes) {
+    for (const NoteEvent& n : notes) {
         if (written++ == kMaxNotesInState) break;
         w.put<int16_t>(int16_t(n.pitch));
         w.put<double>(n.startSec);
@@ -203,11 +224,14 @@ bool getDocument(Reader& r, DocumentPtr* out, std::string* reason) {
 
 }  // namespace
 
-std::vector<uint8_t> encodeState(const ParamValues& params, const Document* document, const MixerState& mixer, double exportBpm) {
+std::vector<uint8_t> encodeState(const ParamValues& params, const Document* document, const MixerState& mixer, double exportBpm,
+                                 const StateChoices& choices) {
     Writer w;
     for (float p : params) w.put<float>(p);
     w.put<double>(std::isfinite(exportBpm) && exportBpm > 0.0 ? exportBpm : 0.0);
     putMixer(w, mixer);
+    putSelection(w, choices.instrumentSelection);
+    w.put<uint8_t>(choices.isModelFocused ? 1 : 0);
     w.put<uint8_t>(document ? 1 : 0);
     if (document) putDocument(w, *document);
     Writer out;
@@ -240,6 +264,10 @@ bool decodeState(const uint8_t* data, size_t size, DecodedState* out, std::strin
     state.exportBpm = r.get<double>();
     if (!r.ok() || !std::isfinite(state.exportBpm) || state.exportBpm < 0.0) return fail(reason, "invalid export tempo");
     if (!getMixer(r, &state.mixer)) return fail(reason, "invalid instrument mix");
+    if (version >= 7) {
+        if (!getSelection(r, &state.instrumentSelection)) return fail(reason, "invalid instrument selection");
+        state.isModelFocused = r.get<uint8_t>() != 0;
+    }
     const uint8_t hasDocument = r.get<uint8_t>();
     if (!r.ok()) return fail(reason, "the state is truncated");
     if (hasDocument != 0 && !getDocument(r, &state.document, reason)) return false;

@@ -110,6 +110,8 @@ static NSString* songPathInPasteboard(NSPasteboard* board) {
 
 // ------------------------------------------------------------ refresh
 
+static const CGFloat kTTRFullModelPill = 118;  // narrower: "MEDIUM" instead of "MODEL: MEDIUM"
+
 - (NSString*)modelPillText:(uint32_t*)color {
     const std::string status = ttr::transcriberStatus();
     *color = 0;
@@ -120,7 +122,8 @@ static NSString* songPathInPasteboard(NSPasteboard* board) {
             return [NSString stringWithFormat:@"MODEL: %s%%", status.substr(open + 1, percent - open - 1).c_str()];
         return @"MODEL: DOWNLOADING";
     }
-    if (status == "ready" || status == "not loaded yet" || status == "model not downloaded yet") return @"MODEL: MEDIUM";
+    if (status == "ready" || status == "not loaded yet" || status == "model not downloaded yet")
+        return [[NSString stringWithFormat:@"MODEL: %s", ttr::modelSizeInfo(ttr::modelSize()).label] uppercaseString];
     *color = 0xFFB35C;
     return @"MODEL: OFFLINE";
 }
@@ -169,8 +172,13 @@ static NSString* songPathInPasteboard(NSPasteboard* board) {
     if (!_mixSlider.isDragging) _mixSlider.value = _kernel->param(ttr::kParamMix);
     if (!_volumeSlider.isDragging) _volumeSlider.value = _kernel->param(ttr::kParamVolume);
     uint32_t pillColor = 0;
-    _modelPill.text = [self modelPillText:&pillColor];
+    NSString* pillText = [self modelPillText:&pillColor];
+    if (_modelPill.frame.size.width < kTTRFullModelPill && [pillText hasPrefix:@"MODEL: "]) pillText = [pillText substringFromIndex:7];  // narrow window
+    _modelPill.text = pillText;
     _modelPill.textColor = pillColor;
+    const std::vector<int> selection = _kernel->instrumentSelection();
+    _instrumentPill.text = selection.empty() ? @"ALL" : [[NSString stringWithUTF8String:ttr::selectionSummary(selection).c_str()] uppercaseString];
+    _instrumentPill.textColor = selection.empty() ? 0 : 0x2EE6C5;
     const BOOL hasNotes = _doc && !_doc->notes.empty();
     _dragButton.isEnabled = hasNotes;
     _exportButton.isEnabled = hasNotes;
@@ -220,6 +228,7 @@ static NSString* songPathInPasteboard(NSPasteboard* board) {
     NSFont* big = TTRMono(22, NSFontWeightMedium);
     const CGFloat w = TTRTextWidth(now, big);
     TTRDrawText(now, NSMakeRect(_timeRect.origin.x, _timeRect.origin.y, w + 4, _timeRect.size.height), big, isRecording ? TTR_RECORD : TTR_TEXT);
+    if (_timeRect.size.width < w + 10 + TTRTextWidth(total, TTRMono(15))) return;  // a narrow window shows the position only
     TTRDrawText(total, NSMakeRect(_timeRect.origin.x + w + 10, _timeRect.origin.y + 2, 140, _timeRect.size.height), TTRMono(15), TTR_DIM);
 }
 
@@ -230,9 +239,11 @@ static NSString* songPathInPasteboard(NSPasteboard* board) {
     [TTR_BORDER setFill];
     NSRectFill(NSMakeRect(kTTRSidebarWidth - 1, side.origin.y, 1, side.size.height));
     NSRectFill(NSMakeRect(0, side.origin.y + 52, kTTRSidebarWidth, 1));
-    TTRDrawText(@"INSTRUMENTS", NSMakeRect(24, side.origin.y, 200, 52), TTRFont(12, NSFontWeightSemibold), TTR_DIM, NSTextAlignmentLeft, 2.0);
+    NSFont* heading = TTRFont(12, NSFontWeightSemibold);
+    TTRDrawText(@"INSTRUMENTS", NSMakeRect(24, side.origin.y, 200, 52), heading, TTR_DIM, NSTextAlignmentLeft, 2.0);
     const int count = int(_stripByProgram.size());
-    TTRDrawText([NSString stringWithFormat:@"%d", count], NSMakeRect(kTTRSidebarWidth - 60, side.origin.y, 36, 52), TTRMono(12), TTR_DIM, NSTextAlignmentRight);
+    if (count > 0)
+        TTRDrawText([NSString stringWithFormat:@"%d", count], NSMakeRect(24 + TTRTextWidth(@"INSTRUMENTS", heading, 2.0) + 8, side.origin.y, 36, 52), TTRMono(12), TTR_TEXT);
     if (count == 0) {
         NSString* hint = _doc && _doc->transcription.isActive() ? @"Instruments appear here as the\nmodel finds them." : @"Load a song: every instrument the\nmodel finds gets its own strip.";
         [hint drawInRect:NSMakeRect(24, side.origin.y + 72, kTTRSidebarWidth - 48, 60) withAttributes:TTRTextAttrs(TTRFont(12), TTRHex(0x6A707B))];
@@ -296,7 +307,10 @@ static NSString* songPathInPasteboard(NSPasteboard* board) {
     NSMutableArray<NSString*>* parts = [NSMutableArray array];
     [parts addObject:[NSString stringWithFormat:@"%zu instrument%s", instruments.size(), instruments.size() == 1 ? "" : "s"]];
     [parts addObject:[NSString stringWithFormat:@"%zu notes", _doc->notes.size()]];
-    [parts addObject:@"Medium model"];
+    [parts addObject:[NSString stringWithFormat:@"%s model", ttr::modelSizeInfo(ttr::modelSize()).label]];
+    const std::vector<int> selection = _kernel->instrumentSelection();
+    if (!selection.empty())
+        [parts addObject:[NSString stringWithFormat:@"%s %s", _kernel->modelFocus() ? "listening for" : "showing", ttr::selectionSummary(selection).c_str()]];
     int lo = 127, hi = 0;
     for (const ttr::NoteEvent& n : _doc->notes)
         if (n.program != ttr::kDrumProgram) { lo = std::min(lo, n.pitch); hi = std::max(hi, n.pitch); }

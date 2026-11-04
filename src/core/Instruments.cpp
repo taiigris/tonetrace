@@ -94,4 +94,63 @@ std::string noteName(int pitch) {
     return std::string(kNames[((pitch % 12) + 12) % 12]) + std::to_string(pitch / 12 - 1);
 }
 
+const std::vector<int>& selectableInstruments() {
+    static const std::vector<int> programs = [] {
+        std::vector<int> out;
+        for (const NamedProgram& p : kNamedPrograms) out.push_back(p.program);
+        std::stable_sort(out.begin(), out.end(), [](int a, int b) { return int(instrumentFamily(a)) < int(instrumentFamily(b)); });
+        return out;
+    }();
+    return programs;
+}
+
+std::string instrumentFamilyName(InstrumentFamily family) {
+    switch (family) {
+        case InstrumentFamily::Keys: return "Keys";
+        case InstrumentFamily::Percussion: return "Mallets & Perc.";
+        case InstrumentFamily::Organ: return "Organ";
+        case InstrumentFamily::Guitar: return "Guitars";
+        case InstrumentFamily::Bass: return "Bass";
+        case InstrumentFamily::Strings: return "Strings";
+        case InstrumentFamily::Voice: return "Voice";
+        case InstrumentFamily::Brass: return "Brass";
+        case InstrumentFamily::Reed: return "Reeds";
+        case InstrumentFamily::Winds: return "Winds";
+        case InstrumentFamily::Synth: return "Synths";
+        case InstrumentFamily::Drums: return "Drums";
+        case InstrumentFamily::None: break;
+    }
+    return "Other";
+}
+
+std::vector<int> normalizedSelection(const std::vector<int>& programs) {
+    const std::vector<int>& all = selectableInstruments();
+    std::vector<int> out;
+    for (int p : programs)
+        if (std::find(all.begin(), all.end(), p) != all.end()) out.push_back(p);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    if (out.size() == all.size()) out.clear();
+    return out;
+}
+
+std::vector<NoteEvent> notesOfInstruments(const std::vector<NoteEvent>& notes, const std::vector<int>& selection) {
+    if (selection.empty()) return notes;
+    std::vector<NoteEvent> out;
+    out.reserve(notes.size());
+    for (const NoteEvent& n : notes)
+        if (std::binary_search(selection.begin(), selection.end(), n.program)) out.push_back(n);
+    return out;
+}
+
+std::string selectionSummary(const std::vector<int>& programs) {
+    const std::vector<int> selection = normalizedSelection(programs);
+    constexpr size_t kNamedUpTo = 2;  // more than this many are counted instead of named
+    if (selection.empty()) return "All instruments";
+    if (selection.size() > kNamedUpTo) return std::to_string(selection.size()) + " instruments";
+    std::string text;
+    for (int p : selection) text += (text.empty() ? "" : " + ") + instrumentName(p);
+    return text;
+}
+
 }  // namespace ttr

@@ -26,10 +26,11 @@ bool isSupported();
 std::shared_ptr<Model> load(const std::string& path, std::string* reason);
 // What one 5 s chunk added: notes that are final now (each reported once), how far the signal is final, progress 0..1.
 using UpdateCallback = std::function<void(float progress, double finalizedSec, const std::vector<Note>& newNotes)>;
-// Transcribes 16 kHz mono audio. `cancel` is polled often, `onUpdate` follows every chunk. `out` gets every note in the
-// end. False with a reason on failure or cancel.
-bool transcribe(Model& model, const float* samples, size_t count, std::vector<Note>* out, const std::function<bool()>& cancel,
-                const UpdateCallback& onUpdate, std::string* reason);
+// Transcribes 16 kHz mono audio. `programs` restricts the model to the instrument groups of these programs (128 = drums;
+// empty = every instrument). `cancel` is polled often, `onUpdate` follows every chunk. `out` gets every note in the end.
+// False with a reason on failure, cancel or a program outside the named groups.
+bool transcribe(Model& model, const float* samples, size_t count, const std::vector<int>& programs, std::vector<Note>* out,
+                const std::function<bool()>& cancel, const UpdateCallback& onUpdate, std::string* reason);
 // Name of the device the model runs on ("Apple M1 Pro", "CPU").
 std::string deviceName(const Model& model);
 

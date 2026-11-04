@@ -54,11 +54,11 @@ void TonetraceKernel::publish(DocumentPtr doc) {
     republishPlayTable();
 }
 
-bool TonetraceKernel::updateDocument(uint64_t id, const std::function<void(Document&)>& change) {
+bool TonetraceKernel::updateDocument(uint64_t id, const std::function<void(Document&)>& change, uint64_t run) {
     DocumentPtr next;
     {
         std::lock_guard<std::mutex> guard(docMutex_);
-        if (!doc_ || doc_->id != id) return false;
+        if (!doc_ || doc_->id != id || (run != kAnyRun && doc_->transcription.run != run)) return false;
         auto copy = std::make_shared<Document>(*doc_);
         change(*copy);
         copy->version = doc_->version + 1;
@@ -147,6 +147,68 @@ void TonetraceKernel::stopJob() {
 
 void TonetraceKernel::cancelTranscription() { jobControl_.cancel.store(true); }
 
+std::vector<int> TonetraceKernel::instrumentSelection() const {
+    std::lock_guard<std::mutex> guard(docMutex_);
+    return instrumentSelection_;
+}
+
+void TonetraceKernel::setInstrumentSelection(const std::vector<int>& programs) {
+    const std::vector<int> selection = normalizedSelection(programs);
+    uint64_t id = 0;
+    {
+        std::lock_guard<std::mutex> guard(docMutex_);
+        if (selection == instrumentSelection_) return;
+        instrumentSelection_ = selection;
+        id = doc_ ? doc_->id : 0;
+    }
+    logInfo(instanceId_, "instrument selection: %s", selectionSummary(selection).c_str());
+    if (id != 0) updateDocument(id, [this](Document& d) { applySelection(d); });  // instant: the full analysis is kept (republishes the notes)
+}
+
+bool TonetraceKernel::modelFocus() const {
+    std::lock_guard<std::mutex> guard(docMutex_);
+    return isModelFocused_;
+}
+
+void TonetraceKernel::setModelFocus(bool isFocused) {
+    std::lock_guard<std::mutex> guard(docMutex_);
+    isModelFocused_ = isFocused;
+}
+
+std::vector<int> TonetraceKernel::listenFor() const {
+    std::lock_guard<std::mutex> guard(docMutex_);
+    return isModelFocused_ ? instrumentSelection_ : std::vector<int>();
+}
+
+void TonetraceKernel::applySelection(Document& d) const {
+    if (d.detectedNotes.empty() && !d.notes.empty()) d.detectedNotes = d.notes;  // a document from before the selection
+    d.notes = notesOfInstruments(d.detectedNotes, instrumentSelection_);
+}
+
+bool TonetraceKernel::needsReanalysis() const {
+    const DocumentPtr doc = document();
+    if (!doc || !doc->audio) return false;
+    const TranscriptionPhase phase = doc->transcription.phase;
+    return phase == TranscriptionPhase::Failed || phase == TranscriptionPhase::Cancelled || doc->transcription.listenedFor != listenFor();
+}
+
+bool TonetraceKernel::reanalyse() {
+    const DocumentPtr doc = document();
+    if (!doc || !doc->audio || isRecording()) return false;
+    const uint64_t id = doc->id, run = ++runIds_;
+    const std::shared_ptr<const SongAudio> audio = doc->audio;
+    // The new run makes every update of the previous analysis (still finishing on the job thread) a no-op.
+    const bool current = updateDocument(id, [run](Document& d) {
+        d.notes.clear();
+        d.detectedNotes.clear();
+        d.transcription = {TranscriptionPhase::Running, 0.0f, 0.0, {}, run, {}};
+    });
+    if (!current) return false;
+    logInfo(instanceId_, "re-analysing with the %s model, %s", modelSizeInfo(modelSize()).id, selectionSummary(instrumentSelection()).c_str());
+    startJob([this, id, run, audio](TaskControl& control) { runTranscription(control, id, run, monoAt(*audio, kMuScriptorRate)); });
+    return true;
+}
+
 bool TonetraceKernel::loadSong(const std::string& path) {
     if (!isSongFile(path) || isRecording()) return false;
     const uint64_t id = nextDocumentId();
@@ -178,19 +240,21 @@ void TonetraceKernel::runLoadSong(TaskControl& control, uint64_t id, const std::
     const std::shared_ptr<const WavePeaks> peaks = computePeaks(*audio);
     if (decoded.truncated)
         notice("\"" + fileNameOf(path) + "\" is " + minutesText(decoded.fileSeconds) + " long - only the first " + minutesText(kMaxSongSeconds) + " are used");
+    const uint64_t run = ++runIds_;
     const bool current = updateDocument(id, [&](Document& d) {
         d.audio = audio;
         d.peaks = peaks;
         d.lengthSec = audio->seconds();
         d.transcription.phase = TranscriptionPhase::Running;
+        d.transcription.run = run;
     });
     if (!current) return;
     logInfo(instanceId_, "song decoded: %.1f s, %d channel(s) - playable, transcribing", audio->seconds(), audio->channels);
-    runTranscription(control, id, monoAt(*audio, kMuScriptorRate));
+    runTranscription(control, id, run, monoAt(*audio, kMuScriptorRate));
 }
 
 // Waits while the model downloads (the document shows why); false with the reason when it cannot come.
-bool TonetraceKernel::waitForModel(TaskControl& control, uint64_t id, std::string* reason) {
+bool TonetraceKernel::waitForModel(TaskControl& control, uint64_t id, uint64_t run, std::string* reason) {
     const std::string hint = prefetchTranscriber();  // starts the download if needed
     if (!hint.empty()) notice(hint, NoticeLevel::Info);
     for (;;) {
@@ -200,7 +264,7 @@ bool TonetraceKernel::waitForModel(TaskControl& control, uint64_t id, std::strin
             *reason = control.cancelled() ? "cancelled" : why;
             return false;
         }
-        if (!updateDocument(id, [&](Document& d) { d.transcription.message = why; })) {
+        if (!updateDocument(id, [&](Document& d) { d.transcription.message = why; }, run)) {
             *reason = "cancelled";
             return false;
         }
@@ -208,30 +272,33 @@ bool TonetraceKernel::waitForModel(TaskControl& control, uint64_t id, std::strin
     }
 }
 
-void TonetraceKernel::runTranscription(TaskControl& control, uint64_t id, std::vector<float> audio16k) {
+void TonetraceKernel::runTranscription(TaskControl& control, uint64_t id, uint64_t run, std::vector<float> audio16k) {
     const auto started = std::chrono::steady_clock::now();
+    const std::vector<int> programs = listenFor();
+    updateDocument(id, [&](Document& d) { d.transcription.listenedFor = programs; }, run);
     std::string reason;
-    bool ok = waitForModel(control, id, &reason);
+    bool ok = waitForModel(control, id, run, &reason);
     if (ok) {
-        updateDocument(id, [](Document& d) { d.transcription.message.clear(); });
+        updateDocument(id, [](Document& d) { d.transcription.message.clear(); }, run);
         const SongProgress onProgress = [&](const std::vector<NoteEvent>& notes, double finalizedSec, float progress) {
             updateDocument(id, [&](Document& d) {
-                d.notes = notes;
+                d.detectedNotes = notes;
+                applySelection(d);
                 d.transcription.finalizedSec = finalizedSec;
                 d.transcription.progress = progress;
-            });
+            }, run);
         };
-        ok = transcribeSong(audio16k, exportBpm(), &control, onProgress, &reason);
+        ok = transcribeSong(audio16k, exportBpm(), programs, &control, onProgress, &reason);
     }
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     const bool cancelled = control.cancelled() || reason == "cancelled";
     updateDocument(id, [&](Document& d) {
-        if (ok) d.transcription = {TranscriptionPhase::Done, 1.0f, d.lengthSec, {}};
+        if (ok) d.transcription = {TranscriptionPhase::Done, 1.0f, d.lengthSec, {}, run, programs};
         else if (cancelled) d.transcription.phase = TranscriptionPhase::Cancelled;
-        else d.transcription = {TranscriptionPhase::Failed, d.transcription.progress, d.transcription.finalizedSec, reason};
-    });
+        else d.transcription = {TranscriptionPhase::Failed, d.transcription.progress, d.transcription.finalizedSec, reason, run, programs};
+    }, run);
     const DocumentPtr doc = document();
-    const bool isOurs = doc && doc->id == id;
+    const bool isOurs = doc && doc->id == id && doc->transcription.run == run;
     const size_t notes = isOurs ? doc->notes.size() : 0;
     if (ok) {
         logInfo(instanceId_, "transcription done: %zu notes, %zu instruments in %.1f s", notes, isOurs ? instrumentsIn(doc->notes).size() : size_t(0), secs);
@@ -321,11 +388,12 @@ void TonetraceKernel::finishRecording() {
     doc->peaks = computePeaks(*audio);
     doc->lengthSec = audio->seconds();
     doc->transcription.phase = TranscriptionPhase::Running;
+    doc->transcription.run = ++runIds_;
     seek(0.0);
     publish(doc);
     logInfo(instanceId_, "recording became the document: %.1f s", doc->lengthSec);
-    const uint64_t id = doc->id;
-    startJob([this, id, audio](TaskControl& control) { runTranscription(control, id, monoAt(*audio, kMuScriptorRate)); });
+    const uint64_t id = doc->id, run = doc->transcription.run;
+    startJob([this, id, run, audio](TaskControl& control) { runTranscription(control, id, run, monoAt(*audio, kMuScriptorRate)); });
 }
 
 }  // namespace ttr

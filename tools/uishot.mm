@@ -87,6 +87,13 @@ int main(int argc, const char* argv[]) {
         kernel->pause();
 
         {
+            TTRInstrumentPicker_v1* picker = (TTRInstrumentPicker_v1*)uievents::find(view, TTRInstrumentPicker_v1.class);
+            [picker showWithSelection:{26, 29, 33, 52, kDrumProgram} focused:NO];
+            [view refreshNow];
+            failures += !writePng(view, [dir stringByAppendingPathComponent:@"screenshot-instruments.png"]);
+            [picker dismiss];
+        }
+        {
             kernel->diagnostics().setHost("Ableton Live 12.4.7");
             kernel->setChannels(2);
             [view toggleDiagnostics];

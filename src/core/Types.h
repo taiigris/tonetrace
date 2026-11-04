@@ -54,6 +54,8 @@ struct Transcription {
     float progress = 0.0f;       // 0..1
     double finalizedSec = 0.0;   // every note ending before this is known
     std::string message;         // reason of a failure
+    uint64_t run = 0;            // which analysis of the document the notes come from (a re-analysis starts a new run)
+    std::vector<int> listenedFor;  // the instruments the model was restricted to (empty = it listened for all)
     bool isActive() const { return phase == TranscriptionPhase::Loading || phase == TranscriptionPhase::Running; }
 };
 
@@ -64,7 +66,8 @@ struct Document {
     bool isRecording = false;
     std::shared_ptr<const SongAudio> audio;  // null while loading or when the file is gone
     std::shared_ptr<const WavePeaks> peaks;
-    std::vector<NoteEvent> notes;  // sorted by start
+    std::vector<NoteEvent> notes;          // sorted by start: the selected instruments (shown, played, exported)
+    std::vector<NoteEvent> detectedNotes;  // everything the analysis found (empty: same as `notes`)
     double lengthSec = 0.0;
     Transcription transcription;
     uint64_t id = 0;       // one per loaded song or recording; background jobs only update their own document
