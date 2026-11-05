@@ -239,6 +239,8 @@ Map & Draw: Live-Spektrogramm, Noten zeichnen, MIDI-Export, Preview, Diagnose (s
 
 ## Lizenzhinweise
 
+Der Quellcode von Tonetrace steht unter der **MIT-Lizenz** (siehe `LICENSE`): frei nutzbar, veränderbar und weitergebbar, auch kommerziell. Das gilt nicht für die MuScriptor-Modellgewichte, die das Plug-in zur Laufzeit lädt (CC BY-NC 4.0, siehe unten).
+
 Das VST3 SDK von Steinberg steht unter der MIT-Lizenz und wird beim Bauen aus `external/vst3sdk` eingebunden.
 Die Notenerkennung linkt muscriptor.cpp und ggml (MIT) sowie pffft (FFTPACK-Lizenz); die Modellgewichte (Kyutai/Mirelo) stehen unter CC BY-NC 4.0, werden nicht mitgeliefert, sondern beim ersten Gebrauch geladen und dürfen nur nicht-kommerziell genutzt werden. Details in `THIRD_PARTY_LICENSES.md`.
 Aufbau und Verhalten der Oberfläche folgen NeuralNote (Damien Ronssin, Apache-2.0); es ist kein Code und kein Asset aus NeuralNote übernommen, Tonetrace implementiert alles selbst.
