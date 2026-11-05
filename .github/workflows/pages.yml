@@ -1,4 +1,4 @@
-# Publishes site/ to GitHub Pages (https://taiigris.github.io/tonetrance/).
+# Publishes site/ to GitHub Pages (https://taiigris.github.io/tonetrace/).
 # One-time setup: Settings -> Pages -> Source: GitHub Actions.
 name: Deploy website
 

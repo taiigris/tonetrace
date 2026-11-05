@@ -1,11 +1,11 @@
 #!/bin/bash
 # Applies the public-repo settings for Tonetrace on GitHub. Safe to run again: existing rulesets are updated in place.
-#   tools/github/apply-repo-settings.sh [owner/repo]     (default: taiigris/tonetrance)
+#   tools/github/apply-repo-settings.sh [owner/repo]     (default: taiigris/tonetrace)
 # Needs the GitHub CLI, logged in as a repo admin: brew install gh && gh auth login
 set -euo pipefail
 cd "$(dirname "$0")"
 
-REPO="${1:-taiigris/tonetrance}"
+REPO="${1:-taiigris/tonetrace}"
 command -v gh >/dev/null || { echo "gh is missing: brew install gh && gh auth login"; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "gh is not logged in: gh auth login"; exit 1; }
 

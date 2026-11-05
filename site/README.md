@@ -1,6 +1,6 @@
 # Tonetrace website
 
-Static product page, published to GitHub Pages at https://taiigris.github.io/tonetrance/.
+Static product page, published to GitHub Pages at https://taiigris.github.io/tonetrace/.
 `index.html` plus `assets/`. No build step, no external fonts, scripts or trackers.
 
 ## Preview locally
@@ -25,7 +25,7 @@ One-time setup: repo Settings → Pages → Source: **GitHub Actions**.
    The download buttons, version labels and install commands follow it.
 
 The download link has the form
-`https://github.com/taiigris/tonetrance/releases/download/v<version>/Tonetrace-<version>-macOS.zip`,
+`https://github.com/taiigris/tonetrace/releases/download/v<version>/Tonetrace-<version>-macOS.zip`,
 so the tag and file name must match exactly.
 
 ## Updating screenshots

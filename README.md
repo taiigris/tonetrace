@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/logo.png" alt="Tonetrace" width="600"></p>
 
-<p align="center"><a href="https://taiigris.github.io/tonetrance/"><b>Website</b></a> · <a href="https://github.com/taiigris/tonetrance/releases/latest"><b>Download</b></a></p>
+<p align="center"><a href="https://taiigris.github.io/tonetrace/"><b>Website</b></a> · <a href="https://github.com/taiigris/tonetrace/releases/latest"><b>Download</b></a></p>
 
 **Tonetrace** is a macOS VST3 effect that turns a whole song into MIDI: drop an audio file on it (or record the track), and the MuScriptor model transcribes every instrument - drums included - while you can already play the song and watch the notes appear. Drag the result into your DAW as one MIDI track per instrument. Choose the model size (small, medium, large) and exactly which of its 35 instruments you want. The layout follows NeuralNote. Everything below is in German.
 
