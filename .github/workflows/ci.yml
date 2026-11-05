@@ -1,0 +1,46 @@
+# Builds the plug-in and runs the unit tests on every pull request and push to main.
+# The job name "Build and test" is the required status check for main (see tools/github/ruleset-main.json).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VST3_SDK_TAG: v3.8.1_build_84
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch VST3 SDK
+        run: |
+          git clone --depth 1 --branch "$VST3_SDK_TAG" https://github.com/steinbergmedia/vst3sdk.git external/vst3sdk
+          git -C external/vst3sdk submodule update --init --depth 1 base pluginterfaces public.sdk cmake
+
+      - name: Configure
+        run: cmake -S . -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j "$(sysctl -n hw.ncpu)"
+
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Transcription test (skips without a downloaded model)
+        run: |
+          build/tonetrace_mstest 2>&1 | tee build/mstest.log | tail -3
+          grep -qE "MSTEST (PASSED|SKIPPED)" build/mstest.log
