@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tonetrace: Song to MIDI</title>
+<meta name="description" content="Tonetrace is a free macOS VST3 plug-in that turns a whole song into MIDI. Every instrument, drums included, one MIDI track per instrument. Runs locally on Apple Silicon.">
+<meta name="theme-color" content="#0E1014">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Tonetrace: turn any song into MIDI">
+<meta property="og:description" content="Drop a song, get one MIDI track per instrument. Drums included. Runs locally on your Mac.">
+<meta property="og:image" content="assets/screenshot.png">
+<link rel="icon" type="image/svg+xml" href="assets/tonetrace-mark.svg">
+<link rel="apple-touch-icon" href="assets/icon-256.png">
+<style>
+  :root {
+    --bg: #0E1014;
+    --bg-raised: #15181E;
+    --bg-card: #1A1E25;
+    --line: #262B34;
+    --text: #E6E9EF;
+    --text-dim: #9AA3B2;
+    --text-faint: #6B7383;
+    --teal: #2EE6C5;
+    --teal-ink: #062A24;
+    --orange: #FF9F43;
+    --violet: #8B5CF6;
+    --rose: #E0607E;
+    --blue: #6E9CFF;
+    --radius: 14px;
+    --max: 1160px;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+  a { color: var(--teal); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: var(--mono); font-size: .9em; }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 16px; }
+  @media (min-width: 720px) { .wrap { padding: 0 32px; } }
+
+  /* ---------- nav ---------- */
+  .nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(14, 16, 20, .82);
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .nav .brand img { height: 20px; width: auto; }
+  .nav ul { display: none; list-style: none; margin: 0 0 0 auto; padding: 0; gap: 26px; }
+  .nav ul a { color: var(--text-dim); font-size: 15px; }
+  .nav ul a:hover { color: var(--text); text-decoration: none; }
+  .nav .btn { margin-left: auto; }
+  @media (min-width: 860px) {
+    .nav ul { display: flex; }
+    .nav .btn { margin-left: 8px; }
+  }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 11px 20px; border-radius: 10px;
+    font-weight: 600; font-size: 15px; line-height: 1;
+    border: 1px solid transparent; cursor: pointer;
+    transition: transform .15s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn-primary { background: var(--teal); color: var(--teal-ink); }
+  .btn-primary:hover { background: #5BF0D5; }
+  .btn-ghost { color: var(--text); border-color: var(--line); background: var(--bg-raised); }
+  .btn-ghost:hover { border-color: #3A4150; }
+  .btn-lg { padding: 16px 26px; font-size: 17px; border-radius: 12px; }
+  .btn svg { width: 18px; height: 18px; flex: none; }
+
+  /* ---------- hero ---------- */
+  .hero { position: relative; padding: 72px 0 40px; overflow: hidden; text-align: center; }
+  .hero::before {
+    content: ""; position: absolute; inset: -40% -20% auto;
+    height: 720px; pointer-events: none;
+    background:
+      radial-gradient(closest-side at 35% 50%, rgba(46, 230, 197, .16), transparent),
+      radial-gradient(closest-side at 70% 40%, rgba(139, 92, 246, .14), transparent);
+  }
+  .hero > .wrap { position: relative; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 999px;
+    background: var(--bg-raised); border: 1px solid var(--line);
+    color: var(--text-dim); font-size: 13px; letter-spacing: .02em;
+  }
+  .eyebrow b { color: var(--teal); font-weight: 600; white-space: nowrap; }
+  h1 {
+    margin: 22px auto 18px; max-width: 14ch;
+    font-size: clamp(40px, 7.4vw, 76px); line-height: 1.04; letter-spacing: -.03em; font-weight: 750;
+  }
+  h1 .accent {
+    background: linear-gradient(90deg, var(--teal), #7FF3DF 55%, var(--orange));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede { max-width: 640px; margin: 0 auto; color: var(--text-dim); font-size: clamp(17px, 2.2vw, 20px); }
+  .cta { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 34px 0 14px; }
+  .cta.left { justify-content: flex-start; margin-bottom: 0; }
+  .fineprint { color: var(--text-faint); font-size: 14px; }
+  .fineprint span { white-space: nowrap; }
+  .fineprint span + span::before { content: "·"; margin: 0 8px; }
+
+  .shot {
+    margin: 56px auto 0; max-width: 1080px;
+    border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    box-shadow: 0 40px 120px -30px rgba(0, 0, 0, .8);
+  }
+  .shot .bar { display: flex; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .shot .bar i { width: 11px; height: 11px; border-radius: 50%; background: #2C313B; }
+
+  /* ---------- sections ---------- */
+  section { padding: 88px 0; }
+  .section-head { max-width: 680px; margin: 0 auto 48px; text-align: center; }
+  .kicker { color: var(--teal); font-size: 13px; font-weight: 650; letter-spacing: .14em; text-transform: uppercase; }
+  h2 { margin: 10px 0 14px; font-size: clamp(30px, 4.4vw, 44px); line-height: 1.12; letter-spacing: -.02em; }
+  .section-head p { margin: 0; color: var(--text-dim); font-size: 18px; }
+  .alt { background: var(--bg-raised); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .dim { color: var(--text-dim); }
+
+  /* ---------- strip of facts ---------- */
+  .facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--line);
+           border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-top: 56px; }
+  .facts div { background: var(--bg); padding: 22px 18px; text-align: center; }
+  .facts b { display: block; font-size: 28px; letter-spacing: -.02em; }
+  .facts span { color: var(--text-dim); font-size: 14px; }
+  @media (min-width: 760px) { .facts { grid-template-columns: repeat(4, 1fr); } }
+
+  /* ---------- steps ---------- */
+  .steps { display: grid; gap: 20px; counter-reset: step; }
+  @media (min-width: 860px) { .steps { grid-template-columns: repeat(3, 1fr); } }
+  .step { background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; min-width: 0; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+    background: rgba(46, 230, 197, .12); color: var(--teal); font-weight: 700; margin-bottom: 18px;
+  }
+  .step h3 { margin: 0 0 8px; font-size: 20px; }
+  .step p { margin: 0; color: var(--text-dim); }
+
+  /* ---------- feature grid ---------- */
+  .grid { display: grid; gap: 20px; }
+  @media (min-width: 720px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 1020px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .card { background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px; }
+  .card .ic { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 16px; }
+  .card .ic svg { width: 22px; height: 22px; }
+  .card h3 { margin: 0 0 8px; font-size: 18px; }
+  .card p { margin: 0; color: var(--text-dim); font-size: 16px; }
+  .t-teal { background: rgba(46, 230, 197, .12); color: var(--teal); }
+  .t-orange { background: rgba(255, 159, 67, .13); color: var(--orange); }
+  .t-violet { background: rgba(139, 92, 246, .15); color: #A88BFA; }
+  .t-rose { background: rgba(224, 96, 126, .14); color: var(--rose); }
+  .t-blue { background: rgba(110, 156, 255, .14); color: var(--blue); }
+
+  /* ---------- spotlight ---------- */
+  .spot { display: grid; gap: 40px; align-items: center; }
+  @media (min-width: 960px) { .spot { grid-template-columns: 5fr 7fr; gap: 56px; } .spot.flip > :first-child { order: 2; } }
+  .spot p { color: var(--text-dim); }
+  .spot img { border-radius: 12px; border: 1px solid var(--line); box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .7); }
+  .ticks { list-style: none; padding: 0; margin: 22px 0 0; }
+  .ticks li { position: relative; padding-left: 30px; margin: 10px 0; }
+  .ticks li::before {
+    content: ""; position: absolute; left: 0; top: 5px; width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(46, 230, 197, .14) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232EE6C5' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12.5l4 4 8-9'/%3E%3C/svg%3E") center / 12px no-repeat;
+  }
+  .ticks small { display: block; color: var(--text-dim); font-size: 15px; }
+
+  /* ---------- model cards ---------- */
+  .models { display: grid; gap: 20px; }
+  @media (min-width: 860px) { .models { grid-template-columns: repeat(3, 1fr); } }
+  .model { position: relative; background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; }
+  .model.rec { border-color: rgba(46, 230, 197, .55); box-shadow: 0 20px 60px -30px rgba(46, 230, 197, .35); }
+  .model .tag { position: absolute; top: -12px; left: 24px; background: var(--teal); color: var(--teal-ink);
+                font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; letter-spacing: .04em; }
+  .model h3 { margin: 0; font-size: 22px; }
+  .model .size { font-size: 34px; font-weight: 750; letter-spacing: -.02em; margin: 10px 0 2px; }
+  .model .size small { font-size: 16px; color: var(--text-dim); font-weight: 500; }
+  .model p { color: var(--text-dim); margin: 6px 0 18px; }
+  .meter { display: grid; grid-template-columns: 74px 1fr; gap: 8px 12px; align-items: center; font-size: 14px; color: var(--text-dim); }
+  .meter .bar { height: 6px; border-radius: 3px; background: #232833; overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; border-radius: 3px; background: var(--teal); }
+  .meter .bar.o i { background: var(--orange); }
+
+  /* ---------- download ---------- */
+  .dl { display: grid; gap: 28px; background: linear-gradient(135deg, #14231F, #17151F);
+        border: 1px solid var(--line); border-radius: 20px; padding: 36px 20px; }
+  @media (min-width: 900px) { .dl { grid-template-columns: 1fr 1fr; padding: 52px; gap: 52px; } }
+  .dl h2 { margin-top: 0; }
+  .dl .meta { color: var(--text-dim); font-size: 15px; margin-top: 14px; }
+  .req { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+  .req li { display: flex; gap: 14px; padding: 14px 16px; border-radius: 12px; background: rgba(0, 0, 0, .25); border: 1px solid var(--line); }
+  .req li b { display: block; font-size: 15px; }
+  .req li span { color: var(--text-dim); font-size: 14px; }
+  .req svg { width: 22px; height: 22px; flex: none; color: var(--teal); margin-top: 2px; }
+
+  /* ---------- install ---------- */
+  .install { display: grid; gap: 20px; }
+  @media (min-width: 900px) { .install { grid-template-columns: repeat(3, 1fr); } }
+  .code {
+    position: relative; margin: 14px 0 0; padding: 14px 16px; padding-right: 72px;
+    background: #0B0D10; border: 1px solid var(--line); border-radius: 10px;
+    font: 14px/1.6 var(--mono); color: #CFE9E3; white-space: pre; overflow-x: auto;
+  }
+  .code .copy {
+    position: absolute; top: 8px; right: 8px; padding: 5px 9px; border-radius: 7px;
+    background: var(--bg-card); color: var(--text-dim); border: 1px solid var(--line);
+    font: 600 12px var(--font); cursor: pointer;
+  }
+  .code .copy:hover { color: var(--text); }
+  .note { margin-top: 24px; padding: 16px 18px; border-radius: 12px; border: 1px solid rgba(255, 159, 67, .35);
+          background: rgba(255, 159, 67, .07); color: var(--text-dim); font-size: 15px; }
+  .note b { color: var(--orange); }
+
+  /* ---------- faq ---------- */
+  .faq { max-width: 820px; margin: 0 auto; }
+  details { border-bottom: 1px solid var(--line); }
+  summary {
+    list-style: none; cursor: pointer; padding: 22px 40px 22px 0; position: relative;
+    font-size: 18px; font-weight: 600;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after {
+    content: "+"; position: absolute; right: 4px; top: 16px; font-size: 26px; font-weight: 300; color: var(--text-dim);
+    transition: transform .2s ease;
+  }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { margin: -6px 0 22px; color: var(--text-dim); }
+
+  /* ---------- footer ---------- */
+  footer { border-top: 1px solid var(--line); padding: 48px 0 56px; color: var(--text-faint); font-size: 14px; }
+  footer .wrap { display: grid; gap: 24px; }
+  @media (min-width: 860px) { footer .wrap { grid-template-columns: 1fr 2fr; } }
+  footer img { height: 18px; width: auto; margin-bottom: 12px; }
+  footer p { margin: 0 0 10px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .btn, summary::after { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" aria-label="Main">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Tonetrace home"><img src="assets/tonetrace-wordmark.svg" alt="Tonetrace" width="177" height="20"></a>
+    <ul>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#models">Models</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#faq">FAQ</a></li>
+      <li><a class="js-source" href="https://github.com/taiigris/tonetrance">Source</a></li>
+    </ul>
+    <a class="btn btn-primary" href="#download">Download</a>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <span class="eyebrow"><b>New in 5.1</b> Pick the model size and exactly which instruments you want</span>
+    <h1>Turn any song into <span class="accent">MIDI.</span></h1>
+    <p class="lede">Drop a song into Tonetrace and it transcribes every instrument, drums included. Press play while the notes appear, then drag one MIDI track per instrument straight into your DAW.</p>
+    <div class="cta">
+      <a class="btn btn-primary btn-lg js-download" href="#download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+        Download for macOS
+      </a>
+      <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+    </div>
+    <p class="fineprint"><span>Free</span><span>VST3 plug-in</span><span>Apple Silicon</span><span>Runs 100% locally</span></p>
+
+    <figure class="shot">
+      <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+      <img src="assets/screenshot.png" width="1280" height="800" alt="Tonetrace transcribing a song: instrument strips on the left, waveform on top, coloured notes for guitar, bass, voice, pad and drums in the piano roll.">
+    </figure>
+
+    <div class="facts">
+      <div><b>35</b><span>instruments recognised</span></div>
+      <div><b>1 track</b><span>of MIDI per instrument</span></div>
+      <div><b>≈ ⅓</b><span>of song length to transcribe</span></div>
+      <div><b>10 min</b><span>songs, wav to flac</span></div>
+    </div>
+  </div>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">How it works</div>
+      <h2>Audio in. MIDI out. Three steps.</h2>
+      <p>No stem splitting, no extra apps, no uploads. Tonetrace sits on a track in your DAW and does the whole job there.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <h3>Drop a song</h3>
+        <p>Drag a wav, aiff, mp3, m4a, flac or caf file into the window, or hit record and play a track from your session.</p>
+      </div>
+      <div class="step">
+        <h3>Watch it transcribe</h3>
+        <p>The MuScriptor model works through the song in 5-second chunks. Each one lands in the piano roll as soon as it is done, and you can listen right away.</p>
+      </div>
+      <div class="step">
+        <h3>Drag out the MIDI</h3>
+        <p>Set the export tempo and drag <em>MIDI out</em> into your arrangement: one named track per instrument, drums on channel 10.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">Features</div>
+      <h2>Everything in the mix, as notes you can use</h2>
+      <p>Built for producers who want the parts of a song, not just its melody.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="ic t-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9v6M8 6v12M12 3v18M16 7v10M20 10v4"/></svg></div>
+        <h3>The whole mix, every instrument</h3>
+        <p>Guitars, bass, keys, strings, brass, voice, synths and drums, all transcribed from a single mixed file.</p>
+      </div>
+      <div class="card">
+        <div class="ic t-orange"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M10 9l5 3-5 3z"/></svg></div>
+        <h3>Play while it listens</h3>
+        <p>Playback starts seconds after the file loads. Blend the original and the notes with the ORIG to MIDI slider.</p>
+      </div>
+      <div class="card">
+        <div class="ic t-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="17" r="3"/><circle cx="17" cy="15" r="3"/><path d="M10 17V5l10-2v12"/></svg></div>
+        <h3>Drums included</h3>
+        <p>Kicks, snares, hats and cymbals come out as General MIDI drum notes, ready for any drum rack.</p>
+      </div>
+      <div class="card">
+        <div class="ic t-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 4v16M5 8h8M5 14h12M5 19h6"/></svg></div>
+        <h3>A mixer for every part</h3>
+        <p>Each detected instrument gets its own strip with colour, note count, range, mute, solo, fader and meter.</p>
+      </div>
+      <div class="card">
+        <div class="ic t-rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v10m0 0l-4-4m4 4l4-4"/><rect x="4" y="16" width="16" height="4" rx="1.5"/></svg></div>
+        <h3>Clean MIDI export</h3>
+        <p>Standard MIDI type 1 with track names and program changes. Mute and solo decide what gets exported.</p>
+      </div>
+      <div class="card">
+        <div class="ic t-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg></div>
+        <h3>Private by design</h3>
+        <p>Your audio never leaves your Mac. The model runs on the Apple Silicon GPU; the only download is the model itself.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap spot">
+    <div>
+      <div class="kicker">Instrument picker</div>
+      <h2>Only want the bass and the drums?</h2>
+      <p>Open the picker next to <em>Instruments</em> and choose from all 35 instruments the model knows, grouped by family. Click a family to toggle it as a whole.</p>
+      <ul class="ticks">
+        <li><b>Keep only these</b><small>The model hears everything; you see, play and export only what you picked. Changes apply instantly, no new analysis.</small></li>
+        <li><b>Model listens only for these</b><small>The model itself focuses on your picks and analyses again. Great for pulling out quiet parts.</small></li>
+      </ul>
+    </div>
+    <img src="assets/screenshot-instruments.png" width="1280" height="800" loading="lazy" alt="The instrument picker with 35 instruments grouped into families such as Keys, Guitars, Bass, Strings, Brass and Drums.">
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap spot flip">
+    <div>
+      <div class="kicker">Built for your session</div>
+      <h2>Feels at home next to your other plug-ins</h2>
+      <p>Waveform on top, piano roll below. Click to move the playhead, pinch to zoom, follow mode keeps the music in view.</p>
+      <ul class="ticks">
+        <li>Projects remember every note, your picks, the mixer and the song.</li>
+        <li>Audio passes through untouched until you load a song.</li>
+        <li>About 0.3% average DSP load during playback.</li>
+        <li>Keyboard shortcuts for play, open and export.</li>
+      </ul>
+    </div>
+    <img src="assets/screenshot-done.png" width="1280" height="800" loading="lazy" alt="A fully transcribed song in Tonetrace with all instruments in the piano roll.">
+  </div>
+</section>
+
+<section id="models">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">Models</div>
+      <h2>Choose speed or detail</h2>
+      <p>Switch any time from the <em>Model</em> menu. A loaded song is re-analysed straight away while it keeps playing. Each size downloads once and stays on your Mac.</p>
+    </div>
+    <div class="models">
+      <div class="model">
+        <h3>Small</h3>
+        <div class="size">209 <small>MB</small></div>
+        <p>Fastest. Good for sketching ideas and quick checks.</p>
+        <div class="meter">
+          <span>Speed</span><span class="bar"><i style="width:95%"></i></span>
+          <span>Detail</span><span class="bar o"><i style="width:50%"></i></span>
+        </div>
+      </div>
+      <div class="model rec">
+        <span class="tag">RECOMMENDED</span>
+        <h3>Medium</h3>
+        <div class="size">618 <small>MB</small></div>
+        <p>The sweet spot. A 5-minute song in about two minutes.</p>
+        <div class="meter">
+          <span>Speed</span><span class="bar"><i style="width:70%"></i></span>
+          <span>Detail</span><span class="bar o"><i style="width:75%"></i></span>
+        </div>
+      </div>
+      <div class="model">
+        <h3>Large</h3>
+        <div class="size">2.7 <small>GB</small></div>
+        <p>Most accurate and slowest. Needs about 3 GB of memory.</p>
+        <div class="meter">
+          <span>Speed</span><span class="bar"><i style="width:30%"></i></span>
+          <span>Detail</span><span class="bar o"><i style="width:95%"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <div class="dl">
+      <div>
+        <div class="kicker">Download</div>
+        <h2>Get Tonetrace <span class="js-version-short">5.1</span></h2>
+        <p class="dim">Free for non-commercial use. One ZIP with the VST3 plug-in and an install script.</p>
+        <div class="cta left">
+          <a class="btn btn-primary btn-lg js-download" href="#download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14"/></svg>
+            Download for macOS
+          </a>
+          <a class="btn btn-ghost btn-lg js-releases" href="#download">All versions</a>
+        </div>
+        <p class="meta"><span class="js-version">Version 5.1.0</span> · ZIP · SHA-256 checksum on the release page</p>
+      </div>
+      <ul class="req">
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+          <div><b>macOS 12 or newer, Apple Silicon</b><span>The plug-in loads on Intel Macs, but transcription needs an M-series chip.</span></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+          <div><b>A VST3 host</b><span>Ableton Live 12, FL Studio for Mac and other VST3 hosts.</span></div>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17a4 4 0 01-.5-8 6 6 0 0111.5 1.5A3.5 3.5 0 0117 17"/><path d="M12 12v8m0 0l-3-3m3 3l3-3"/></svg>
+          <div><b>Internet once, for the model</b><span>209 MB to 2.7 GB depending on size, verified with SHA-256.</span></div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="alt">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">Install</div>
+      <h2>Up and running in a minute</h2>
+    </div>
+    <div class="install">
+      <div class="step">
+        <h3>Unzip and install</h3>
+        <p>The script copies the plug-in to your VST3 folder and signs it locally.</p>
+        <pre class="code"><code class="js-install">unzip Tonetrace-5.1.0-macOS.zip
+cd Tonetrace-5.1.0
+./install.sh</code><button class="copy" type="button">Copy</button></pre>
+      </div>
+      <div class="step">
+        <h3>Rescan in your DAW</h3>
+        <p><b>Ableton Live:</b> Settings › Plug-Ins › turn on <em>Use VST3 Plug-In System Folder</em> and rescan.<br><b>FL Studio:</b> Options › Manage plugins › Find plugins.</p>
+      </div>
+      <div class="step">
+        <h3>Drop it on a track</h3>
+        <p>Open the window and drag in a song. The first run downloads the model; the song is already playable meanwhile.</p>
+      </div>
+    </div>
+    <div class="note"><b>Gatekeeper warning?</b> Tonetrace is signed ad hoc and not notarised by Apple. If macOS blocks it, run:
+      <pre class="code"><code>xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Tonetrace.vst3</code><button class="copy" type="button">Copy</button></pre>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">FAQ</div>
+      <h2>Questions, answered</h2>
+    </div>
+    <div class="faq">
+      <details>
+        <summary>Is Tonetrace really free?</summary>
+        <p>Yes. The transcription model behind it, MuScriptor, is released under CC BY-NC 4.0, so Tonetrace may only be used for non-commercial purposes.</p>
+      </details>
+      <details>
+        <summary>Does my music get uploaded anywhere?</summary>
+        <p>No. Everything runs locally on your Mac. Tonetrace only goes online once per model size to download the weights from Hugging Face.</p>
+      </details>
+      <details>
+        <summary>How accurate is it?</summary>
+        <p>On real recordings it picks up melodies, bass lines, chords and drums well, and the Large model gets closest. Very synthetic sounds such as a bare sine wave are less reliable. Tonetrace does not predict velocity (all notes are 100), and two parts played on the same instrument end up on one track.</p>
+      </details>
+      <details>
+        <summary>Does it detect the tempo?</summary>
+        <p>Not yet. Set <em>Export tempo</em> to the song's tempo before exporting. By default it follows your host tempo.</p>
+      </details>
+      <details>
+        <summary>Can I edit the notes inside Tonetrace?</summary>
+        <p>Tonetrace focuses on getting the notes out. Mute, solo and the instrument picker shape what you export; do the detailed editing in your DAW's piano roll.</p>
+      </details>
+      <details>
+        <summary>Which DAWs are supported?</summary>
+        <p>Any VST3 host on macOS, including Ableton Live and FL Studio. AU and AAX versions are not available.</p>
+      </details>
+      <details>
+        <summary>How do I uninstall it?</summary>
+        <p>Run <code>./uninstall.sh</code> from the ZIP. Models and settings live in <code>~/Library/Tonetrace</code>; delete that folder to remove them too.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <img src="assets/tonetrace-wordmark.svg" alt="Tonetrace" width="159" height="18">
+      <p>Song to MIDI for your Mac.</p>
+      <p><a class="js-source" href="https://github.com/taiigris/tonetrance">Source code on GitHub</a></p>
+    </div>
+    <div>
+      <p>Transcription by the MuScriptor model (Kyutai and Mirelo), weights licensed CC BY-NC 4.0, running through muscriptor.cpp and ggml (MIT).</p>
+      <p>VST is a registered trademark of Steinberg Media Technologies GmbH. macOS and Apple Silicon are trademarks of Apple Inc. All other trademarks belong to their owners.</p>
+      <p>This site uses no cookies, no tracking and no external fonts or scripts.</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Edit these two values when you publish a new release (see site/README.md).
+  const RELEASE = {
+    version: "5.1.0",
+    repo: "taiigris/tonetrance",
+  };
+  const COPIED_RESET_MS = 1600;
+
+  const releaseFile = `Tonetrace-${RELEASE.version}-macOS.zip`;
+  const downloadUrl = `https://github.com/${RELEASE.repo}/releases/download/v${RELEASE.version}/${releaseFile}`;
+  const releasesUrl = `https://github.com/${RELEASE.repo}/releases`;
+  const shortVersion = RELEASE.version.split(".").slice(0, 2).join(".");
+
+  const setAll = (selector, apply) => document.querySelectorAll(selector).forEach(apply);
+  setAll(".js-download", (link) => { link.href = downloadUrl; });
+  setAll(".js-releases", (link) => { link.href = releasesUrl; });
+  setAll(".js-source", (link) => { link.href = `https://github.com/${RELEASE.repo}`; });
+  setAll(".js-version", (el) => { el.textContent = `Version ${RELEASE.version}`; });
+  setAll(".js-version-short", (el) => { el.textContent = shortVersion; });
+  setAll(".js-install", (el) => {
+    el.textContent = `unzip ${releaseFile}\ncd Tonetrace-${RELEASE.version}\n./install.sh`;
+  });
+
+  setAll(".code .copy", (button) => {
+    button.addEventListener("click", async () => {
+      const text = button.parentElement.querySelector("code").textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copied";
+      } catch (error) {
+        button.textContent = "Select & copy";
+      }
+      setTimeout(() => { button.textContent = "Copy"; }, COPIED_RESET_MS);
+    });
+  });
+</script>
+</body>
+</html>
