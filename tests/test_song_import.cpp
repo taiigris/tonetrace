@@ -74,6 +74,37 @@ TEST(midi_has_one_track_per_instrument_and_drums_on_channel_10) {
     }
 }
 
+TEST(midi_export_keeps_the_instruments_for_a_gm_synth_after_import) {
+    const std::vector<NoteEvent> notes = {note(40, 0.0, 1.0, 33), note(36, 0.5, 0.6, kDrumProgram), note(60, 1.0, 2.0, 0), note(64, 2.0, 2.5, 88)};
+    const ParsedMidi parsed = parseMidiFile(buildMidi(notes, 120.0, "My Song"));
+    CHECK(parsed.valid && parsed.notes.size() == 4);
+    CHECK(parsed.hasGmSystemOn);  // GM reset in the tempo track: a GM synth switches to the GM sound set
+    CHECK(parsed.instrumentNames.size() == 5 && parsed.instrumentNames[0].empty());
+    CHECK(parsed.instrumentNames[1] == "Acoustic Grand Piano" && parsed.instrumentNames[2] == "Electric Bass (finger)" &&
+          parsed.instrumentNames[3] == "Pad 1 (new age)" && parsed.instrumentNames[4] == "Standard Kit");
+    CHECK(parsed.trackPrograms.size() == 5 && parsed.trackPrograms[0] == -1 && parsed.trackPrograms[1] == 0 && parsed.trackPrograms[2] == 33 &&
+          parsed.trackPrograms[3] == 88 && parsed.trackPrograms[4] == 0);
+    CHECK(parsed.trackBanks.size() == 5 && parsed.trackBanks[0] == -1);
+    for (size_t i = 1; i < parsed.trackBanks.size(); ++i) CHECK(parsed.trackBanks[i] == 0);  // bank select before every program change
+    for (const MidiNote& n : parsed.notes) {
+        if (n.pitch == 40) CHECK(n.program == 33);
+        if (n.pitch == 64) CHECK(n.program == 88);
+    }
+}
+
+TEST(gm_sound_names_cover_every_program) {
+    CHECK(gmSoundName(0) == "Acoustic Grand Piano" && gmSoundName(127) == "Gunshot" && gmSoundName(kDrumProgram) == "Standard Kit");
+    for (int program = 0; program <= kMaxProgram; ++program) CHECK(!gmSoundName(program).empty());
+    CHECK(gmSoundName(kNoProgram).empty() && gmSoundName(200).empty());
+}
+
+TEST(a_track_without_instrument_has_no_program_bank_or_instrument_name) {
+    const std::vector<NoteEvent> notes = {note(60, 0.0, 1.0, kNoProgram)};
+    const ParsedMidi parsed = parseMidiFile(buildMidi(notes, 120.0, "Plain"));
+    CHECK(parsed.valid && parsed.notes.size() == 1);
+    CHECK(parsed.trackPrograms.size() == 2 && parsed.trackPrograms[1] == -1 && parsed.trackBanks[1] == -1 && parsed.instrumentNames[1].empty());
+}
+
 TEST(sixteen_melodic_instruments_share_channels_but_never_the_drum_channel) {
     std::vector<MidiNote> notes;
     for (int program = 0; program < 20; ++program) {

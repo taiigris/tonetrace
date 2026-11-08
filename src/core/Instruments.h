@@ -13,6 +13,9 @@ enum class InstrumentFamily { None, Keys, Percussion, Organ, Guitar, Bass, Strin
 // "Bass", "Drums", "Synth Pad", ...; "Notes" for kNoProgram and "Program <n>" for programs the model never picks.
 std::string instrumentName(int program);
 InstrumentFamily instrumentFamily(int program);
+// The General MIDI sound name of a program ("Electric Bass (finger)"), "Standard Kit" for drums, empty for kNoProgram
+// and anything outside 0..128. The export writes it so a GM synth (and the user) sees the exact sound after import.
+std::string gmSoundName(int program);
 // A program a note may carry: kNoProgram, 0..127 or kDrumProgram.
 bool isValidProgram(int program);
 

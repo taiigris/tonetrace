@@ -54,6 +54,7 @@ std::vector<MidiTrack> planTracks(const std::vector<MidiNote>& notes) {
     for (auto& [program, group] : byProgram) {
         MidiTrack t;
         t.name = instrumentName(program);
+        t.instrument = gmSoundName(program);
         const bool isDrums = program == kDrumProgram;
         t.channel = isDrums ? kDrumChannel : melodicChannel(melodic++);
         t.program = isDrums ? 0 : program;  // on channel 10 the program picks the kit: 0 = standard

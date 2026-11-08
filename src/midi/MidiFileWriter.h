@@ -17,9 +17,11 @@ struct MidiNote {
     int channel = 0;   // 0..15; parsed: the channel of the note-on
 };
 
-// One MIDI track: a name, its channel and (program >= 0) a Program Change at the start.
+// One MIDI track: a name, its channel and (program >= 0) Bank Select (GM bank 0) plus Program Change at the start, so a
+// GM synth in the DAW picks the instrument by itself. `instrument` (the GM sound name) becomes an Instrument Name meta event.
 struct MidiTrack {
     std::string name;
+    std::string instrument;
     int channel = 0;
     int program = -1;
     std::vector<MidiNote> notes;
@@ -41,6 +43,10 @@ struct ParsedMidi {
     double endBeat = 0.0;  // latest end-of-track position of the note tracks
     std::string trackName;  // name of the first note track
     std::vector<std::string> trackNames;  // every track, the tempo track included
+    std::vector<std::string> instrumentNames;  // per track: the Instrument Name meta event (empty when none)
+    std::vector<int> trackPrograms;  // per track: the first Program Change (-1 when none)
+    std::vector<int> trackBanks;     // per track: the first Bank Select MSB (CC 0; -1 when none)
+    bool hasGmSystemOn = false;      // the file carries the GM System On SysEx
     std::vector<MidiNote> notes;  // sorted by start
 };
 

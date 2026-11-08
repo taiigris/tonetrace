@@ -34,7 +34,7 @@ add_library(tonetrace_core STATIC
   src/midi/MidiFileWriter.cpp src/midi/ExportPlanner.cpp
   src/preview/NoteSynth.cpp
   src/state/StateCodec.cpp src/state/UiSettings.cpp src/core/Logger.cpp src/core/Diagnostics.cpp
-  src/core/Instruments.cpp src/core/SongImport.cpp src/core/SongAudio.cpp
+  src/core/Instruments.cpp src/core/GmSoundNames.cpp src/core/SongImport.cpp src/core/SongAudio.cpp
   src/core/TonetraceKernel.cpp src/core/KernelAudio.cpp src/core/KernelJobs.cpp src/core/KernelState.cpp)
 target_include_directories(tonetrace_core PUBLIC src ${CMAKE_BINARY_DIR}/generated)
 find_library(ACCELERATE Accelerate)

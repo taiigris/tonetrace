@@ -9,8 +9,13 @@ namespace ttr {
 namespace {
 
 constexpr int kChannels = 16;
-constexpr uint8_t kNoteOn = 0x90, kNoteOff = 0x80, kProgramChange = 0xC0, kChannelPressure = 0xD0;
-constexpr uint8_t kMetaTrackName = 0x03, kMetaEndOfTrack = 0x2F, kMetaTempo = 0x51, kMetaTimeSignature = 0x58;
+constexpr uint8_t kNoteOn = 0x90, kNoteOff = 0x80, kControlChange = 0xB0, kProgramChange = 0xC0, kChannelPressure = 0xD0;
+constexpr uint8_t kMetaTrackName = 0x03, kMetaInstrumentName = 0x04, kMetaEndOfTrack = 0x2F, kMetaTempo = 0x51, kMetaTimeSignature = 0x58;
+constexpr uint8_t kSysEx = 0xF0, kSysExEscape = 0xF7;
+constexpr uint8_t kCcBankMsb = 0, kCcBankLsb = 32;
+constexpr uint8_t kGmBank = 0;
+// GM System On (Universal Non-Real Time): F0 7E 7F 09 01 F7; stored after the F0 status with the F7 included.
+const std::vector<uint8_t> kGmSystemOn = {0x7E, 0x7F, 0x09, 0x01, 0xF7};
 
 void put16(std::vector<uint8_t>& b, uint32_t v) { b.push_back(uint8_t(v >> 8)); b.push_back(uint8_t(v)); }
 void put32(std::vector<uint8_t>& b, uint32_t v) { put16(b, v >> 16); put16(b, v & 0xFFFF); }
@@ -35,6 +40,28 @@ void putTrackName(std::vector<uint8_t>& b, const std::string& name) {
     putMeta(b, 0, kMetaTrackName, std::vector<uint8_t>(name.begin(), name.end()));
 }
 
+void putSysEx(std::vector<uint8_t>& b, uint32_t delta, const std::vector<uint8_t>& data) {
+    putVarLen(b, delta);
+    b.push_back(kSysEx);
+    putVarLen(b, uint32_t(data.size()));
+    b.insert(b.end(), data.begin(), data.end());
+}
+
+void putChannelEvent(std::vector<uint8_t>& b, uint8_t status, uint8_t channel, std::initializer_list<uint8_t> data) {
+    putVarLen(b, 0);
+    b.push_back(uint8_t(status | channel));
+    b.insert(b.end(), data.begin(), data.end());
+}
+
+// Instrument Name, Bank Select (GM bank 0) and Program Change at the start of the track.
+void putInstrument(std::vector<uint8_t>& b, const MidiTrack& t, uint8_t channel) {
+    if (t.program < 0 || t.program > 127) return;
+    if (!t.instrument.empty()) putMeta(b, 0, kMetaInstrumentName, std::vector<uint8_t>(t.instrument.begin(), t.instrument.end()));
+    putChannelEvent(b, kControlChange, channel, {kCcBankMsb, kGmBank});
+    putChannelEvent(b, kControlChange, channel, {kCcBankLsb, kGmBank});
+    putChannelEvent(b, kProgramChange, channel, {uint8_t(t.program)});
+}
+
 void appendChunk(std::vector<uint8_t>& file, const char* tag, const std::vector<uint8_t>& body) {
     file.insert(file.end(), tag, tag + 4);
     put32(file, uint32_t(body.size()));
@@ -49,6 +76,7 @@ std::vector<uint8_t> tempoTrack(double bpm, const std::string& title) {
     const uint32_t usPerQuarter = uint32_t(std::lround(60000000.0 / std::max(1.0, bpm)));
     putMeta(tempo, 0, kMetaTempo, {uint8_t(usPerQuarter >> 16), uint8_t(usPerQuarter >> 8), uint8_t(usPerQuarter)});
     putMeta(tempo, 0, kMetaTimeSignature, {4, 2, 24, 8});
+    putSysEx(tempo, 0, kGmSystemOn);
     putMeta(tempo, 0, kMetaEndOfTrack, {});
     return tempo;
 }
@@ -95,11 +123,7 @@ std::vector<uint8_t> noteTrack(const MidiTrack& t, uint32_t clipTicks) {
     const uint8_t channel = uint8_t(std::clamp(t.channel, 0, kChannels - 1));
     std::vector<uint8_t> track;
     putTrackName(track, t.name);
-    if (t.program >= 0 && t.program <= 127) {
-        putVarLen(track, 0);
-        track.push_back(uint8_t(kProgramChange | channel));
-        track.push_back(uint8_t(t.program));
-    }
+    putInstrument(track, t, channel);
     uint32_t last = 0;
     for (const Event& e : noteEvents(t.notes, channel)) {
         putVarLen(track, e.tick - last);
@@ -153,6 +177,9 @@ struct TrackState {
     int programs[kChannels];
     std::map<int, OpenNote> open;  // channel * 128 + pitch
     std::string name;
+    std::string instrument;
+    int firstProgram = -1;
+    int firstBank = -1;
     TrackState() { std::fill(std::begin(programs), std::end(programs), -1); }
 };
 
@@ -163,7 +190,16 @@ void parseMeta(Reader& r, int index, TrackState& s, ParsedMidi& out) {
     for (uint32_t i = 0; i < len && r.ok; ++i) data.push_back(r.u8());
     if (type == kMetaTempo && data.size() == 3) out.bpm = 60000000.0 / double((data[0] << 16) | (data[1] << 8) | data[2]);
     if (type == kMetaTrackName) s.name.assign(data.begin(), data.end());
+    if (type == kMetaInstrumentName) s.instrument.assign(data.begin(), data.end());
     if (type == kMetaEndOfTrack && index >= 1) out.endBeat = std::max(out.endBeat, double(s.tick) / out.ppq);
+}
+
+// A SysEx event (F0 or F7): skipped, except that GM System On is noted.
+void parseSysEx(Reader& r, uint8_t status, ParsedMidi& out) {
+    const uint32_t len = r.varLen();
+    std::vector<uint8_t> data;
+    for (uint32_t i = 0; i < len && r.ok; ++i) data.push_back(r.u8());
+    if (status == kSysEx && data == kGmSystemOn) out.hasGmSystemOn = true;
 }
 
 void parseChannelEvent(Reader& r, uint8_t status, TrackState& s, ParsedMidi& out) {
@@ -171,7 +207,15 @@ void parseChannelEvent(Reader& r, uint8_t status, TrackState& s, ParsedMidi& out
     const int channel = status & 0x0F;
     const int data1 = r.u8();
     const int data2 = (kind == kProgramChange || kind == kChannelPressure) ? 0 : r.u8();
-    if (kind == kProgramChange) { s.programs[channel] = data1; return; }
+    if (kind == kProgramChange) {
+        s.programs[channel] = data1;
+        if (s.firstProgram < 0) s.firstProgram = data1;
+        return;
+    }
+    if (kind == kControlChange) {
+        if (data1 == kCcBankMsb && s.firstBank < 0) s.firstBank = data2;
+        return;
+    }
     const int key = channel * 128 + data1;
     if (kind == kNoteOn && data2 > 0) {
         s.open[key] = {s.tick, data2, s.programs[channel]};
@@ -195,10 +239,14 @@ void parseTrack(Reader& r, int index, ParsedMidi& out) {
         uint8_t status = r.u8();
         if (status < 0x80) { --r.pos; status = s.running; }
         if (status == 0xFF) { parseMeta(r, index, s, out); continue; }
+        if (status == kSysEx || status == kSysExEscape) { parseSysEx(r, status, out); continue; }
         s.running = status;
         parseChannelEvent(r, status, s, out);
     }
     out.trackNames.push_back(s.name);
+    out.instrumentNames.push_back(s.instrument);
+    out.trackPrograms.push_back(s.firstProgram);
+    out.trackBanks.push_back(s.firstBank);
     if (index == 1) out.trackName = s.name;
     r.pos = end;
 }
