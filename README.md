@@ -4,7 +4,7 @@
 
 **Tonetrace** is a macOS VST3 effect that turns a whole song into MIDI: drop an audio file on it (or record the track), and the MuScriptor model transcribes every instrument - drums included - while you can already play the song and watch the notes appear. Drag the result into your DAW as one MIDI track per instrument. Choose the model size (small, medium, large) and exactly which of its 35 instruments you want. The layout follows NeuralNote. Everything below is in German.
 
-Tonetrace 5.1: Song ins Fenster ziehen oder aufnehmen, alle Instrumente werden erkannt und getrennt, die Noten erscheinen Schritt für Schritt in der Piano Roll, Wiedergabe geht sofort, Export als MIDI mit einer Spur pro Instrument. Modellgröße (Small, Medium, Large) und Instrumente (35 einzeln wählbar) bestimmst du selbst.
+Tonetrace 5.2: Song ins Fenster ziehen oder aufnehmen, alle Instrumente werden erkannt und getrennt, die Noten erscheinen Schritt für Schritt in der Piano Roll, Wiedergabe geht sofort, Export als MIDI mit einer Spur pro Instrument, die Instrumente bleiben dabei erhalten. Modellgröße (Small, Medium, Large) und Instrumente (35 einzeln wählbar) bestimmst du selbst.
 
 ![Tonetrace](docs/screenshot.png)
 
@@ -35,10 +35,10 @@ Tonetrace 5.1: Song ins Fenster ziehen oder aufnehmen, alle Instrumente werden e
 
 ## Installation
 
-Aus der ZIP `Tonetrace-5.1.0-macOS.zip` (selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`):
+Aus der ZIP `Tonetrace-5.2.0-macOS.zip` (selbst gebaut legt `./build.sh --release-zip` sie nach `dist/`):
 
 ```bash
-unzip Tonetrace-5.1.0-macOS.zip && cd Tonetrace-5.1.0
+unzip Tonetrace-5.2.0-macOS.zip && cd Tonetrace-5.2.0
 ./install.sh
 ```
 
@@ -102,7 +102,7 @@ cd ../..
 |---|---|
 | `./build.sh` | Build, Unit-Tests, Transkriptionstest (echtes Modell, wenn vorhanden), UI-Test, Benchmark, Installation, Signierung, validator, Hosttest, Screenshots, Absturzbericht-Prüfung |
 | `./build.sh --no-install` | Build, Unit-Tests, Transkriptionstest und UI-Test |
-| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-5.1.0-macOS.zip` |
+| `./build.sh --release-zip` | wie `./build.sh`, danach `dist/Tonetrace-5.2.0-macOS.zip` |
 
 muscriptor.cpp + ggml werden als arm64-Unterbuild geholt (festes Commit) und per `lipo` mit einem x86_64-Stub vereint. Die Version steht nur in `VERSION`.
 
@@ -143,6 +143,11 @@ Gemessen mit `tonetrace_bench` (Release, nativ), Details in `docs/PERFORMANCE.md
 - Der Editor funktioniert nur, wenn Processor und Controller im selben Prozess laufen (alle gängigen Mac-Hosts).
 
 ## Changelog
+
+### 5.2.0 – Instrumente bleiben beim MIDI-Export erhalten
+
+- **Instrumente im Export:** jede Instrumentspur beginnt mit dem GM-Klangnamen (Instrument-Name-Event, z. B. „Electric Bass (finger)“, „Standard Kit“), Bank Select 0/0 und Program Change; die Tempospur trägt GM System On. Ein GM-fähiger Klangerzeuger wählt das Instrument nach dem Import von selbst, ohne Neuzuweisung von Hand. Hosts, die Program Changes ignorieren (Ableton Live), zeigen über Spur- und Instrumentname, welcher Klang hingehört.
+- **Tests:** 3 neue Unit-Tests (Instrumente im Export inkl. Rundlauf durch den Parser, alle 128 GM-Namen, Spur ohne Instrument).
 
 ### 5.1.0 – Modell- und Instrumentauswahl
 

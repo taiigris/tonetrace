@@ -1,4 +1,4 @@
-Tonetrace 5.1 (macOS, VST3, Apple Silicon fuer die Transkription)
+Tonetrace 5.2 (macOS, VST3, Apple Silicon fuer die Transkription)
 
 Installation
   1. In diesem Ordner im Terminal ausfuehren:  ./install.sh
@@ -8,6 +8,8 @@ Installation
   3. Tonetrace auf eine Spur legen, einen Song ins Fenster ziehen (wav, aiff, mp3, m4a, flac, caf; bis 10 min)
      oder Record druecken und die Spur abspielen. Die Noten erscheinen Schritt fuer Schritt, Play geht sofort.
   4. "Drag MIDI out" in die Arrangement-Ansicht ziehen: eine MIDI-Spur pro Instrument, Drums auf Kanal 10.
+     Jede Spur traegt GM-Klangname, Bank Select und Program Change: ein GM-Klangerzeuger waehlt das
+     Instrument nach dem Import selbst (Ableton Live wertet Program Changes nicht aus).
   5. Optional: "ALL" neben INSTRUMENTS waehlt die Instrumente (35 einzeln), "MODEL" oben die Modellgroesse
      (Small 209 MB, Medium 618 MB, Large 2,7 GB).
 
