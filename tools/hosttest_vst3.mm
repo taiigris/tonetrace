@@ -112,6 +112,23 @@ int main(int argc, const char* argv[]) {
         a.setParam(ttr::kParamMuteInput, 0.0);
         a.process(nullptr);
 
+        printf("4b. Playback on a silent or input-less track\n");
+        // The plug-in plays the song itself, usually on an empty track: a host must not put it to sleep on silent input.
+        check(a.processor->getTailSamples() == kInfiniteTail, "reports an infinite tail (the host keeps calling process on silent input)");
+        {
+            const int32 savedInputs = a.data.numInputs;
+            for (int32 c = 0; c < a.data.outputs[0].numChannels; ++c)
+                std::fill(a.data.outputs[0].channelBuffers32[c], a.data.outputs[0].channelBuffers32[c] + kBlock, 1.0f);
+            a.data.numInputs = 0;  // a host that passes no input bus
+            a.data.numSamples = kBlock;
+            const bool ok = a.processor->process(a.data) == kResultOk;
+            a.data.numInputs = savedInputs;
+            bool cleared = true;
+            for (int32 c = 0; c < a.data.outputs[0].numChannels; ++c)
+                for (int32 i = 0; i < kBlock; ++i) cleared &= a.data.outputs[0].channelBuffers32[c][i] == 0.0f;
+            check(ok && cleared, "without an input bus the output is still processed (silence plus playback, no stale data)");
+        }
+
         printf("5. State round trip into a second instance\n");
         const ttr::MixerState mix = ttr::MixerState{}.with(ttr::kDrumProgram, {true, false, 0.8f});
         {

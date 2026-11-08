@@ -115,16 +115,23 @@ tresult PLUGIN_API TonetraceProcessor::process(ProcessData& data) {
         else if (ctx->state & ProcessContext::kTempoValid)
             kernel_->setHostTransport(ctx->tempo, 0.0, isPlaying);
     }
-    if (data.numSamples <= 0 || data.numInputs < 1 || data.numOutputs < 1) return kResultOk;
+    if (data.numSamples <= 0 || data.numOutputs < 1 || !data.outputs) return kResultOk;
 
-    AudioBusBuffers& in = data.inputs[0];
+    // The input is optional: without one (or with fewer channels) the output starts silent, so the song and the notes
+    // still play on a track that feeds the plug-in nothing.
     AudioBusBuffers& out = data.outputs[0];
-    const int channels = std::min<int>({in.numChannels, out.numChannels, kMaxChannels});
-    if (channels <= 0 || !in.channelBuffers32 || !out.channelBuffers32) return kResultOk;
+    const int channels = std::min<int>(out.numChannels, kMaxChannels);
+    if (channels <= 0 || !out.channelBuffers32) return kResultOk;
+    const AudioBusBuffers* in = data.numInputs >= 1 && data.inputs && data.inputs[0].channelBuffers32 ? &data.inputs[0] : nullptr;
+    const int inChannels = in ? std::min<int>(in->numChannels, channels) : 0;
+    const size_t bytes = size_t(data.numSamples) * sizeof(float);
     out.silenceFlags = 0;
-    for (int c = 0; c < channels; ++c)
-        if (out.channelBuffers32[c] != in.channelBuffers32[c])
-            std::memcpy(out.channelBuffers32[c], in.channelBuffers32[c], size_t(data.numSamples) * sizeof(float));
+    for (int c = 0; c < channels; ++c) {
+        float* dst = out.channelBuffers32[c];
+        const float* src = c < inChannels ? in->channelBuffers32[c] : nullptr;
+        if (!src) std::memset(dst, 0, bytes);
+        else if (dst != src) std::memcpy(dst, src, bytes);
+    }
 
     // The kernel works in place on the output; split hosts' oversized blocks without allocating.
     int done = 0;

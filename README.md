@@ -147,7 +147,8 @@ Gemessen mit `tonetrace_bench` (Release, nativ), Details in `docs/PERFORMANCE.md
 ### 5.2.0 – Instrumente bleiben beim MIDI-Export erhalten
 
 - **Instrumente im Export:** jede Instrumentspur beginnt mit dem GM-Klangnamen (Instrument-Name-Event, z. B. „Electric Bass (finger)“, „Standard Kit“), Bank Select 0/0 und Program Change; die Tempospur trägt GM System On. Ein GM-fähiger Klangerzeuger wählt das Instrument nach dem Import von selbst, ohne Neuzuweisung von Hand. Hosts, die Program Changes ignorieren (Ableton Live), zeigen über Spur- und Instrumentname, welcher Klang hingehört.
-- **Tests:** 3 neue Unit-Tests (Instrumente im Export inkl. Rundlauf durch den Parser, alle 128 GM-Namen, Spur ohne Instrument).
+- **Vorhören repariert:** Tonetrace meldet dem Host jetzt einen unendlichen Nachklang (VST3-Tail). Vorher durften Hosts das Plug-in auf einer leeren oder stillen Spur schlafen legen, dann blieb die Wiedergabe von Song und Noten stumm. Liefert ein Host keinen Eingang, wird trotzdem verarbeitet (Stille plus Wiedergabe).
+- **Tests:** 2 neue Host-Prüfungen (Tail, Verarbeitung ohne Eingangsbus), 3 neue Unit-Tests (Instrumente im Export inkl. Rundlauf durch den Parser, alle 128 GM-Namen, Spur ohne Instrument).
 
 ### 5.1.0 – Modell- und Instrumentauswahl
 
